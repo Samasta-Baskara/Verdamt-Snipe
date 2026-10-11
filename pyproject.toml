@@ -7,7 +7,7 @@ name = "verdamt-snipe"
 version = "1.4.5"
 description = "Async-first web security reconnaissance framework for authorized assessments."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "Samasta Baskara (Verdammt)" }]
 keywords = ["security", "reconnaissance", "pentesting", "bug-bounty"]
@@ -17,9 +17,8 @@ classifiers = [
   "Intended Audience :: Information Technology",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Security",
 ]
 dependencies = [
@@ -47,7 +46,7 @@ include = ["core*", "modules*", "reports*", "runners*"]
 exclude = ["tests*"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120
 extend-exclude = ["dump", ".venv"]
 

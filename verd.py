@@ -7,6 +7,13 @@ and keeps the `verd:main` console entry (pyproject.toml) working.
 import asyncio
 import sys
 
+if sys.version_info < (3, 12):
+    sys.stderr.write(
+        f"\033[91m[!] Verdamt-Snipe requires Python 3.12 or newer. "
+        f"Detected Python {sys.version.split()[0]}.\033[0m\n"
+    )
+    sys.exit(1)
+
 from core.cli_parser import (  # noqa: F401  (re-export for tests/legacy)
     VERSION, AUTHOR, VULN_THREADS,
     parse_target, parse_mode, parse_scan_args, parse_cli_headers,
