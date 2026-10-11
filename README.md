@@ -254,7 +254,7 @@ Berikut ringkasan vektor kerentanan utama yang diuji secara otomatis:
 
 ```bash
 # 1. Clone repositori & masuk ke direktori
-git clone https://github.com/SamastaBaskara-3214/Verdamt-Snipe.git
+git clone https://github.com/Samasta-Baskara/Verdamt-Snipe.git
 cd Verdamt-Snipe
 
 # 2. Buat virtual environment & install dependensi
