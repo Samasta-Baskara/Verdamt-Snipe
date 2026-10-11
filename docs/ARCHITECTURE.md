@@ -422,9 +422,12 @@ Berikut adalah struktur direktori lengkap repositori Verdamt-Snipe beserta anota
 verdamt-snipe/
 ├── verd.py                       # Titik masuk utama Python CLI
 ├── snipe                         # Skrip launcher Bash praktis
-├── ARCHITECTURE.md               # Dokumentasi arsitektur sistem (berkas ini)
 ├── README.md                     # Panduan pengguna dan ringkasan fitur
 ├── requirements.txt              # Daftar dependensi Python
+├── docs/                         # Dokumentasi teknis mendalam
+│   ├── ARCHITECTURE.md           # Arsitektur teknis lengkap (berkas ini)
+│   ├── BENCHMARKS.md             # Data benchmark performa komprehensif
+│   └── tutorial.md               # Tutorial penggunaan taktis langkah-demi-langkah
 ├── config/                       # Konfigurasi default sistem
 │   └── settings.yaml             # File konfigurasi global (timeout, user-agent, dll.)
 ├── core/                         # Komponen fondasi inti framework

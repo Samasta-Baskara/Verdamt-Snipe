@@ -1200,5 +1200,5 @@ Gunakan kombinasi opsi berikut sesuai dengan kebutuhan operasi:
    Engine `httpx` memanfaatkan koneksi multiplexing HTTP/2 secara native, menghemat socket TCP dan handshake TLS pada target yang mendukung HTTP/2.
 
 > [!TIP]
-> Untuk hasil pengujian benchmark komparatif mendalam, benchmark perbandingan concurrency, dan perbandingan performa antar versi, silakan rujuk dokumen lengkap di [BENCHMARKS.md](file:///home/oblivion/verdamt-snipe/BENCHMARKS.md).
+> Untuk hasil pengujian benchmark komparatif mendalam, benchmark perbandingan concurrency, dan perbandingan performa antar versi, silakan rujuk dokumen lengkap di [BENCHMARKS.md](BENCHMARKS.md).
 
