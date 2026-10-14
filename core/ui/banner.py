@@ -149,8 +149,8 @@ _BANNER_LINES = [
     "  " + chr(9553) + W + chr(183)*5 + N + O + chr(9608)*4 + W + chr(183)*5 + N + W + chr(183) + N + W + chr(183)*9 + N + O + chr(9608)*2 + W + chr(183)*3 + N + chr(9553),
     "  " + chr(9553) + W + chr(183)*6 + N + O + chr(9608)*2 + W + chr(183)*6 + N + W + chr(183) + N + O + chr(9608)*12 + W + chr(183)*2 + N + chr(9553),
     "  " + chr(9553) + W + chr(183)*29 + N + chr(9553),
-    "  " + chr(9553) + B + W + "  " + chr(9608)*2 + "    VERDAMMT-SNIPE    " + chr(9608)*2 + " " + N + chr(9553),
-    "  " + chr(9553) + C + "     recon" + chr(183) + "scan" + chr(183) + "assault      " + N + chr(9553),
+    "  " + chr(9553) + B + W + "  " + chr(9608)*2 + "    VERDAMT-SNIPE     " + chr(9608)*2 + " " + N + chr(9553),
+    "  " + chr(9553) + C + "     recon" + chr(183) + "scan" + chr(183) + "exploit      " + N + chr(9553),
     "  " + chr(9562) + chr(9552)*29 + chr(9565),
 ]
 
@@ -175,6 +175,93 @@ _MODE_ICONS = {
 }
 
 _IMPERSONATE_OPTS = [None, "chrome", "safari", "firefox"]
+
+
+# ── --help catalogue ────────────────────────────────────────────────────────
+# Single source of truth for the help screen.  tests/test_help_screen.py
+# cross-checks this table against the flags core/cli_parser.py actually
+# consumes, so the help text cannot drift from the real grammar again.
+
+def mode_flag(mode_id: str) -> str:
+    """Long CLI flag for a mode id (``recon_light`` → ``--recon-light``)."""
+    return "--" + mode_id.replace("_", "-")
+
+
+_HELP_USAGE = [
+    ("snipe <mode 1-7> <target> [flags]", "quick launcher (recommended)"),
+    ("snipe <target> [flags]", "opens the interactive mode menu"),
+    ("python3 verd.py <target> [flags]", "same, without the snipe wrapper"),
+    ("python3 verd.py --full <target>", "run one mode directly"),
+    ("snipe --help", "this screen   ·   snipe --version"),
+]
+
+_HELP_GROUPS = [
+    ("SCAN CONTROL", [
+        ("-s, --stealth", "Camouflage, jitter and human-like headers"),
+        ("-t, --turbo", "Max concurrency, no delays"),
+        ("--max-time <sec>", "Global scan time budget"),
+        ("--passive", "Passive methods and tools only"),
+        ("-r, --resume [path]", "Resume from a saved state file"),
+    ]),
+    ("PROXY & IMPERSONATION", [
+        ("-p, --proxy <url>", "Proxy URL, e.g. socks5://1.2.3.4:1080"),
+        ("--proxy-list <path>", "Load a proxy list from a file"),
+        ("--proxy-rotate <n>", "Rotate to the next proxy every N requests"),
+        ("--no-proxy", "Ignore the VERDAMT_PROXY environment fallback"),
+        ("-i, --impersonate <b>", "TLS fingerprint: chrome, safari or firefox"),
+    ]),
+    ("SAFETY & SCOPE", [
+        ("--max-requests <n>", "Hard cap on requests against the target"),
+        ("--max-concurrency <n>", "Max concurrent requests against the target"),
+        ("--request-timeout <sec>", "Per-request timeout against the target"),
+        ("--allowed-hosts <h,h>", "Extra exact hosts or IPs kept in scope"),
+        ("--allowed-ports <p,p>", "Ports allowed for active probes (80,443)"),
+        ("--dry-run", "Authorise and log every request, send nothing"),
+    ]),
+    ("AUTH & HEADERS", [
+        ("--bearer <val>", "Bearer token: literal, env:VAR or file:PATH"),
+        ("--bearer-file <path>", "Bearer token read from a file"),
+        ("--bearer2 <val>", "Bearer token for role-2 requests"),
+        ("--bearer2-file <path>", "Role-2 bearer token read from a file"),
+        ("--cookie <val>", "Cookie header: literal, env:VAR or file:PATH"),
+        ("--cookie-file <path>", "Cookie header read from a file"),
+        ("--cookie2 <val>", "Cookie header for role-2 requests"),
+        ("--cookie2-file <path>", "Role-2 cookie read from a file"),
+        ('-H "Name: value"', "Custom header for role-1 requests"),
+        ('-H2 "Name: value"', "Custom header for role-2 requests"),
+    ]),
+    ("MODULE FOCUS", [
+        ("--jwt", "Focus the JWT module"),
+        ("--idor", "Focus the IDOR module"),
+        ("--crlf", "Focus the CRLF module"),
+        ("--host-inject", "Focus Host-header injection"),
+        ("--stored-xss", "Focus stored XSS"),
+    ]),
+    ("OUTPUT & TOOLING", [
+        ("--audit-log <path>", "Write the JSONL audit trail to <path>"),
+        ("--setup-wordlists", "Install or refresh the wordlist set"),
+        ("--setup-wordlists --force", "Re-download wordlists that already exist"),
+        ("-h, --help, /h", "Show this help screen"),
+        ("--version, /v", "Print the version"),
+    ]),
+]
+
+_HELP_LAUNCHER = [
+    ("1 … 7", "Mode shortcuts for --recon … --nuclei"),
+    ("-s / -t / -r", "--stealth / --turbo / --resume"),
+    ("-p <url> / -i <browser>", "--proxy / --impersonate"),
+    ("-j / -x / -id", "--jwt / --stored-xss / --idor"),
+    ("-c / -hi / -a", "--crlf / --host-inject / all five focus flags"),
+]
+
+_HELP_EXAMPLES = [
+    "snipe 6 example.com                       fast baseline",
+    "snipe 4 example.com -s -p socks5://1.2.3.4:1080",
+    "snipe example.com                         interactive menu",
+    "python3 verd.py example.com --full --max-time 300",
+    "python3 verd.py --nuclei example.com --dry-run",
+    "snipe example.com --resume                continue last scan",
+]
 
 _PIPELINE_STAGES_BY_MODE: Dict[str, List[Dict[str, str]]] = {
     "RECON_LIGHT": [
@@ -289,28 +376,19 @@ def print_banner(version, author):
     console.print(Rule(style="bright_black"))
     print()
 
-    # Flags panel using Rich
-    flags_content = Text()
-    flags_content.append("  FLAGS\n", style="bold white")
-    flags_content.append(f"  {'━'*28}\n", style="bright_black")
-    flag_items = [
-        ("--stealth", "Stealth jitter & headers"),
-        ("--turbo", "Max concurrency"),
-        ("--impersonate", "TLS fingerprint spoof"),
-        ("--proxy", "Proxy URL (socks5://ip:port)"),
-        ("--proxy-list", "Proxy list file path"),
-        ("--max-time", "Time budget in seconds"),
-        ("--resume", "Resume from saved state"),
-        ("--bearer", "Auth header"),
-        ("--cookie", "Cookie header"),
-        ("-H / -H2", "Custom role headers"),
-    ]
-    for flag, desc in flag_items:
-        flags_content.append(f"  {flag:<16}", style="cyan")
-        flags_content.append(f"{desc}\n", style="white")
-
+    # Quick start derived from the same catalogue `--help` renders, so the
+    # banner can never advertise a flag list that no longer exists.
+    quick = Text()
+    for idx, (cmd, desc) in enumerate(_HELP_USAGE[:3]):
+        if idx:
+            quick.append("\n")
+        quick.append("  ")
+        quick.append(cmd.ljust(36), "cyan")
+        quick.append(desc, "bright_black")
     console.print(Panel(
-        flags_content,
+        quick,
+        title=Text.assemble(" QUICK START ", style="bold white"),
+        title_align="left",
         border_style="bright_black",
         box=box.ROUNDED,
         expand=False,
@@ -319,6 +397,6 @@ def print_banner(version, author):
 
     print()
     # Version line with style
-    console.print(f"  [cyan]v{version}[/] [bright_black]•[/] [magenta]{author}[/] [bright_black]•[/] [bright_black]recon[/][dim]·[/][bright_black]scan[/][dim]·[/][bright_black]assault[/]")
+    console.print(f"  [cyan]v{version}[/] [bright_black]•[/] [magenta]{author}[/] [bright_black]•[/] [bright_black]recon[/][dim]·[/][bright_black]scan[/][dim]·[/][bright_black]exploit[/]")
     console.print(Rule(style="bright_black"))
     print()

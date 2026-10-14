@@ -19,8 +19,12 @@ from rich.columns import Columns
 from rich.rule import Rule
 from rich import box
 
-from .banner import _MODES, _MODE_ICONS
-from .styles import C, G, GY, N, R, W, _ARROW_R, _CHECK, _CROSS, _DIAMOND, _INFO, _RARROW, _SKULL, _TARGET, _WARN, _get_term_width, console, strip_ansi
+from .banner import (_MODES, _MODE_ICONS, _HELP_USAGE, _HELP_GROUPS,
+                     _HELP_LAUNCHER, _HELP_EXAMPLES, mode_flag)
+from .styles import (C, G, GY, N, R, W, _ARROW_R, _CHECK, _CROSS, _DIAMOND,
+                     _INFO, _RARROW, _SKULL, _TARGET, _WARN, _get_term_width,
+                     console, strip_ansi, D_GOLD_SOFT, D_GOLD, D_EMERALD,
+                     D_TEAL, D_INFO, D_DIM, D_BORDER)
 from .tables import ScanDashboard, draw_box
 
 
@@ -47,13 +51,13 @@ def _rich_print(msg):
 
 def p(msg):
     if ScanDashboard.active():
-        ScanDashboard.get().log_event(f"{_RARROW} {strip_ansi(str(msg))}", "cyan")
+        ScanDashboard.get().log_event(strip_ansi(str(msg)), "cyan", kind="info")
     else:
         _rich_print(f"  [bold #5a8a9e]{_RARROW}[/] {msg}")
 
 def i(msg):
     if ScanDashboard.active():
-        ScanDashboard.get().log_event(f"{_INFO} {strip_ansi(str(msg))}", "bright_black")
+        ScanDashboard.get().log_event(strip_ansi(str(msg)), "bright_black", kind="info")
     else:
         _rich_print(f"  [#555555]{_INFO}[/] {msg}")
 
@@ -71,7 +75,7 @@ def e(msg):
 
 def s(msg):
     if ScanDashboard.active():
-        ScanDashboard.get().log_event(f"{_CHECK} {strip_ansi(str(msg))}", "#4a8a5e")
+        ScanDashboard.get().log_event(strip_ansi(str(msg)), "green", kind="ok")
     else:
         _rich_print(f"  [bold #4a8a5e]{_CHECK}[/] {msg}")
 
@@ -206,7 +210,7 @@ def draw_interactive_menu(target, settings, selected_mode=None):
 
     # Banner (compact)
     banner_text = Text()
-    banner_text.append("  VERDAMMT", style="bold white")
+    banner_text.append("  VERDAMT", style="bold white")
     banner_text.append("-", style="bright_black")
     banner_text.append("SNIPE", style="bold magenta")
     banner_text.append("  ", style="")
@@ -290,88 +294,103 @@ def draw_interactive_menu(target, settings, selected_mode=None):
     console.print(f"  [cyan]{_RARROW}[/] Select mode [cyan]\\[{mode_hint}][/] or toggle [cyan]\\[S/T/P/I/H][/]: ", end="")
 
 
-def draw_help_screen():
-    help_text = Text()
+# ── --help screen ───────────────────────────────────────────────────────────
+#
+# Rendered straight from the _HELP_* catalogue in .banner, which
+# tests/test_help_screen.py cross-checks against the flags
+# core/cli_parser.py actually consumes — so this screen cannot drift.
 
-    # Usage section
-    help_text.append("  USAGE\n", style="bold white")
-    help_text.append(f"  {'━'*40}\n", style="bright_black")
-    help_text.append("  snipe", style="cyan")
-    help_text.append(" <target>             ", style="white")
-    help_text.append("→ interactive mode\n", style="bright_black")
-    help_text.append("  snipe", style="cyan")
-    help_text.append(" <mode> <target>      ", style="white")
-    help_text.append("→ direct mode\n\n", style="bright_black")
+_HELP_PANEL_W = 116
 
-    # Modes section
-    help_text.append("  MODES\n", style="bold white")
-    help_text.append(f"  {'━'*40}\n", style="bright_black")
-    for key, (mode_id, label, desc) in _MODES.items():
-        icon = _MODE_ICONS.get(key, "")
-        help_text.append(f"  {icon} ", style="")
-        help_text.append(f"[{key}]", style="cyan")
-        help_text.append(f"  {label:<13}", style="white")
-        help_text.append(f"{desc}\n", style="bright_black")
 
-    help_text.append("\n", style="")
-
-    # Flags section
-    help_text.append("  FLAGS\n", style="bold white")
-    help_text.append(f"  {'━'*40}\n", style="bright_black")
-    flags = [
-        ("-s  --stealth", "Camouflage + jitter + headers"),
-        ("-t  --turbo", "Max concurrency (no delays)"),
-        ("-p  --proxy", "Proxy URL (socks5://ip:port)"),
-        ("    --no-proxy", "Ignore VERDAMT_PROXY env fallback"),
-        ("-i  --impersonate", "TLS fingerprint spoof"),
-        ("-r  --resume", "Resume from saved state"),
-        ("    --max-time", "Global scan timeout in seconds"),
-        ("    --passive", "Allow passive methods/tools only"),
-        ("    --max-requests", "Maximum target HTTP requests"),
-        ("    --max-concurrency", "Maximum concurrent target requests"),
-        ("    --request-timeout", "Maximum timeout per target request"),
-        ("    --allowed-hosts", "Additional exact hosts/IPs in scope"),
-        ("    --allowed-ports", "Comma-separated ports (default: 80,443)"),
-        ("    --proxy-list", "Load proxies from file"),
-        ("    --proxy-rotate", "Rotate proxy every N requests"),
-        ("    --bearer", "Bearer token for authenticated scans"),
-        ("    --cookie", "Cookie header for authenticated scans"),
-        ("    -H / -H2", "Custom headers for role 1 / role 2"),
-        ("    --jwt", "Enable JWT module focus"),
-        ("    --idor", "Enable IDOR module focus"),
-        ("    --crlf", "Enable CRLF module focus"),
-        ("    --host-inject", "Enable Host header module focus"),
-        ("    --stored-xss", "Enable stored XSS module focus"),
-    ]
-    for flag, desc in flags:
-        help_text.append(f"  {flag:<24}", style="cyan")
-        help_text.append(f"{desc}\n", style="white")
-
-    help_text.append("\n", style="")
-
-    # Examples section
-    help_text.append("  EXAMPLES\n", style="bold white")
-    help_text.append(f"  {'━'*40}\n", style="bright_black")
-    examples = [
-        "snipe 6 target.com                 → fast baseline",
-        "snipe 4 target.com -s -p socks5://1.2.3.4:1080",
-        "python3 verd.py target.com --nuclei --max-time 180",
-        "snipe target.com                 → interactive",
-    ]
-    for ex in examples:
-        help_text.append(f"  $ {ex}\n", style="cyan")
-
-    panel = Panel(
-        help_text,
-        title=f"[bold white] {_SKULL} HELP — VERDAMT SNIPE [/]",
+def _help_panel(title: str, body) -> Panel:
+    return Panel(
+        body,
+        title=Text.assemble(f" {title} ", style=f"bold {D_GOLD_SOFT}"),
         title_align="left",
-        border_style="cyan",
-        box=box.HEAVY,
-        expand=False,
-        padding=(1, 2),
+        border_style=D_BORDER,
+        box=box.ROUNDED,
+        expand=True,
+        width=_HELP_PANEL_W,
+        padding=(0, 1),
     )
-    console.print(panel)
+
+
+def _help_kv(rows, key_colour=D_EMERALD, indent=2, gap=3) -> Text:
+    """Aligned `flag   description` block; Rich wraps long rows on render."""
+    key_w = max((len(flag) for flag, _ in rows), default=0)
+    out = Text()
+    for idx, (flag, desc) in enumerate(rows):
+        if idx:
+            out.append("\n")
+        out.append(" " * indent)
+        out.append(flag.ljust(key_w), key_colour)
+        out.append(" " * gap)
+        out.append(desc, D_DIM)
+    return out
+
+
+def draw_help_screen():
+    header = Text()
+    header.append("\n  VERDAMT-SNIPE ", style=f"bold {D_GOLD_SOFT}")
+    header.append("· RECON · SCAN · EXPLOIT", style=D_TEAL)
+    header.append("\n  Authorized targets only.\n", style=D_DIM)
+    header.append("  Scope is enforced by --allowed-hosts and --allowed-ports.\n",
+                  style=D_DIM)
+
+    usage = Text()
+    for idx, (cmd, desc) in enumerate(_HELP_USAGE):
+        if idx:
+            usage.append("\n")
+        usage.append("  ")
+        usage.append(cmd.ljust(36), D_INFO)
+        usage.append(desc, D_DIM)
+
+    modes = Text()
+    for key, (mode_id, _label, desc) in _MODES.items():
+        if modes.plain:
+            modes.append("\n")
+        modes.append("  ")
+        modes.append(f"[{key}] ".ljust(6), D_GOLD)
+        modes.append(mode_flag(mode_id).ljust(15), D_EMERALD)
+        modes.append("  ")
+        modes.append(desc, D_DIM)
+
+    launcher = _help_kv(_HELP_LAUNCHER, key_colour=D_TEAL)
+
+    examples = Text()
+    for idx, example in enumerate(_HELP_EXAMPLES):
+        if idx:
+            examples.append("\n")
+        parts = re.split(r"\s{2,}", example, maxsplit=1)
+        examples.append("  $ ", D_GOLD)
+        examples.append(parts[0], D_INFO)
+        if len(parts) > 1:
+            examples.append("  " + parts[1], D_DIM)
+
+    panels = [_help_panel("USAGE", usage), _help_panel("MODES", modes)]
+    panels += [_help_panel(title, _help_kv(rows)) for title, rows in _HELP_GROUPS]
+    panels += [_help_panel("SNIPER LAUNCHER", launcher),
+               _help_panel("EXAMPLES", examples)]
+
+    # Pair the compact panels side by side when the terminal is wide enough
+    # to keep every description on one line; otherwise stack them.
+    tw = _get_term_width()
+    blocks: list = []
+    if tw >= 150:
+        blocks.append(panels[0])
+        for i in range(1, len(panels) - 1, 2):
+            blocks.append(Columns([panels[i], panels[i + 1]],
+                                  expand=True, padding=(0, 1)))
+        blocks.append(panels[-1])
+    else:
+        blocks = panels
+
+    console.print(header)
+    for block in blocks:
+        console.print(block)
     print()
+
 
 def draw_confirm_bar(mode, target, settings):
     st = f"{G}{_CHECK} ON{N}" if settings.get('stealth') else f"{R}{_CROSS} OFF{N}"

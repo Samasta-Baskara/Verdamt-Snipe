@@ -76,6 +76,22 @@ _CIRCLE = "○"
 _ARROW_R = "▸"
 _BLOCK = "█"
 
+# ── Verdamt-Snipe design system ────────────────────────────────────────────
+# Dashboard palette (single source of truth — keep in sync with the docs).
+D_BG = "#080B0A"          # main background
+D_PANEL = "#111916"       # panel background
+D_ELEV = "#18221D"        # elevated surfaces
+D_EMERALD = "#00D68F"     # success / completed / positive results
+D_TEAL = "#00CFC1"        # brand accent
+D_GOLD = "#D4AF37"        # metallic gold — milestones & progress
+D_GOLD_SOFT = "#FFF1A8"   # soft gold — wordmark / emphasis
+D_TEXT = "#F0F3F0"        # primary text
+D_DIM = "#A5ACA8"         # secondary text / timestamps / metadata
+D_INFO = "#77CBEF"        # informational blue
+D_WARN = "#FFB547"        # warning / running
+D_CRIT = "#FF5D68"        # critical red
+D_BORDER = "#263A32"      # muted border / progress track
+
 # Rich Color Palette (Military-Tactical)
 _CLR_PRIMARY = "#c8a832"
 _CLR_ACCENT = "#c8a832"
