@@ -16,9 +16,35 @@ from modules.wordlists import WordlistProvider, PROVIDER
 from runners.shared import inject_query_payload
 
 from .flood import phase_bruteforce, phase_param_flood, phase_payload_flood
-from .state import PHASE0_TIME_CAP, PoisonState, _budget_ok, _charge_external, _get_proxy_flag
+from .state import PHASE0_TIME_CAP, PoisonState, _budget_ok, _charge_external, _exhaust_finding, _get_proxy_flag, _parse_finding_param
 from .wave import _hold_for_backoff
 
+
+
+# Paket 3 (bedah 2026-10-14): a CDN/WAF edge accepts every connection at
+# the front door — exhaust and CL.TE smuggling can never reach the origin
+# pool, so that budget is redirected to phases that can still win.
+_CDN_EDGE = ("cloudflare", "akamai", "imperva", "sucuri", "fastly",
+             "incapsula", "cloudfront", "stackpath", "keycdn", "bunnycdn")
+
+
+def _edge_shields_origin(state) -> bool:
+    """True when a CDN/edge front-door was detected on the target."""
+    return any(c in str(w).lower() for w in (state.target_wafs or set())
+               for c in _CDN_EDGE)
+
+
+def _budget_warning(state) -> Optional[str]:
+    """Paket 3: budget death is silent (denials read as "no finding"
+    downstream) — surface it every wave once below 20%."""
+    if state.policy is None:
+        return None
+    rem = state.policy.requests_remaining
+    cap = getattr(state.policy, "max_requests", None)
+    if rem is not None and cap and rem < cap * 0.2:
+        return (f"Budget running low: {rem}/{cap} requests left — "
+                "raise --max-requests for longer runs")
+    return None
 
 
 # Phase: Connection Exhaust
@@ -33,6 +59,9 @@ async def phase_connection_exhaust(state: PoisonState):
     if not _budget_ok(state):
         return
     if _hold_for_backoff(state, "connection exhaust"):
+        return
+    if _edge_shields_origin(state):
+        i("CDN/WAF edge detected — exhaust skipped (edge absorbs sockets, origin shielded)")
         return
 
     for sv in state.services[:2]:
@@ -52,21 +81,11 @@ async def phase_connection_exhaust(state: PoisonState):
 
         if results.get("server_downgrade"):
             state.server_strained = True
-        # Findings
-        if results.get("total_time", 0) > 0:
-            sl = results["slowloris"]
-            pf = results["pool_flood"]
-            cb = results["chunked_bomb"]
-            total_refused = sl["refused"] + pf["refused"] + cb["refused"]
-            total_open = sl["opened"] + cb["opened"]
-            if total_refused > 50:
-                state.add_finding({
-                    "type": "conn_exhaust_pressure",
-                    "title": "Connection Pool Under Pressure",
-                    "url": sv["url"][:200],
-                    "detail": f"{total_refused}/{total_open+total_refused} connections refused — pool exhaustion detected",
-                    "confidence": "confirmed",
-                })
+        # Findings — honest classification (N2): confirmed only on hard
+        # ECONNREFUSED, timeouts → suspected; denominator = attempted (N3).
+        finding = _exhaust_finding(results, sv["url"])
+        if finding:
+            state.add_finding(finding)
 
 
 # Phase: Cache Poisoning
@@ -113,6 +132,9 @@ async def phase_smuggling(state: PoisonState):
     if not _budget_ok(state):
         return
     if _hold_for_backoff(state, "smuggling probes"):
+        return
+    if _edge_shields_origin(state):
+        i("CDN/WAF edge detected — smuggling skipped (edge shields origin)")
         return
 
     base_urls = [sv["url"] for sv in state.services[:3]]
@@ -201,15 +223,17 @@ async def phase_oob(state: PoisonState):
     # Auto-scan SSRF internal on blind_ssrf and ssrf findings
     for f in findings:
         if ("ssrf" in f.get("type", "")) and state.time_left > 10:
-            param = None
+            # Structured field first (oob_detector findings carry it since
+            # N1 fix); detail parser is the fallback for old-format findings.
+            param = f.get("param") or _parse_finding_param(f.get("detail", ""))
             url = f.get("url", "")
-            detail = f.get("detail", "")
-            for part in detail.split("|"):
-                part = part.strip()
-                if part.startswith("Param:"):
-                    param = part.split(":", 1)[1].strip()
-                    break
             if param and url:
+                scan_key = (url, param)
+                if scan_key in state._ssrf_scanned:
+                    continue
+                # Mark BEFORE the await: a wave deadline mid-scan must not
+                # restart the whole 21-26 probe series on the next wave (N7).
+                state._ssrf_scanned.add(scan_key)
                 try:
                     from modules.web.server_side.ssrf_scanner import SSRFScanner
                     scanner = SSRFScanner(state.async_engine, state.session_manager)
@@ -228,8 +252,8 @@ async def _adaptive_wave_loop(state: PoisonState):
 
     Block A: Discovery (param flood + bruteforce + cache + smuggle + exhaust)
     Block B: Detection (OOB + payload flood + auto-chain)
-    Block C: Assault (vuln modules + plugins)
-    Block D: Intelligence (session rotation + target reprioritization)
+    Block C: Assault (vuln modules)
+    Block D: Custom plugins (modules/custom/, sequential)
     """
     if state.time_left <= 0:
         return
@@ -342,13 +366,6 @@ async def run_poison_assault(
     state.current_concurrency = 200 if is_turbo else 100
     state.module_flags = module_flags or {}
 
-    # Adaptive controller input: every successful response reports its real
-    # latency to the state (see PoisonState.track_request_latency). Cleared
-    # again before returning so a later runner sharing this engine cannot
-    # keep mutating a finished poison run.
-    if hasattr(async_engine, "latency_observer"):
-        async_engine.latency_observer = state.track_request_latency
-
     # Phase 0: WAF Bypass Engine — find origin IP + bypass techniques.
     #
     # Phase 0 gets its OWN time slice. It runs before the wave clock matters
@@ -360,14 +377,20 @@ async def run_poison_assault(
     phase0_budget = min(max_duration, PHASE0_TIME_CAP)
     phase0_start = time.time()
     bypass_result = {}
-    try:
-        bypass_result = await asyncio.wait_for(
-            waf_bypass_pipeline(target, subs, list(scan_urls),
-                                proxy=_get_proxy_flag() or None),
-            timeout=phase0_budget)
-    except (asyncio.TimeoutError, TimeoutError):
-        w(f"WAF bypass pipeline used its whole {phase0_budget}s slice — "
-          "continuing without origin intel")
+    if not existing_wafs:
+        # Paket 3: without a WAF/CDN there is nothing to bypass and no
+        # origin to hunt — the pipeline burned 40-90s for zero intel.
+        i("Phase 0: no WAF/CDN detected — bypass pipeline skipped, "
+          "budget goes to waves")
+    else:
+        try:
+            bypass_result = await asyncio.wait_for(
+                waf_bypass_pipeline(target, subs, list(scan_urls),
+                                    proxy=_get_proxy_flag() or None),
+                timeout=phase0_budget)
+        except (asyncio.TimeoutError, TimeoutError):
+            w(f"WAF bypass pipeline used its whole {phase0_budget}s slice — "
+              "continuing without origin intel")
     phase0_elapsed = time.time() - phase0_start
     if isinstance(bypass_result, dict):
         if bypass_result.get("origin_ip"):
@@ -411,6 +434,14 @@ async def run_poison_assault(
     # wait_for() is the hard deadline: inner phases (ffuf, exhaust, OOB,
     # vuln modules) can no longer run past max_duration, which the outer
     # while-condition alone could not enforce.
+    #
+    # Adaptive controller input: every successful response reports its real
+    # latency to PoisonState.track_request_latency. Wired AFTER Phase 0 (the
+    # bypass pipeline / hunt_origin never touch async_engine, so no latency is
+    # lost) and cleared in finally — an unexpected exception used to leak the
+    # observer into a later runner sharing this engine (N6).
+    if hasattr(async_engine, "latency_observer"):
+        async_engine.latency_observer = state.track_request_latency
     try:
         while state.elapsed < state.max_duration:
             if not _budget_ok(state):
@@ -429,11 +460,17 @@ async def run_poison_assault(
 
             # Start next wave with mutated params
             state.start_wave()
+            warn = _budget_warning(state)
+            if warn:
+                w(warn)
             s(f"{C}===== Next wave in 1s [{state.wave}] ======{N}")
             await asyncio.sleep(1)
 
     except asyncio.CancelledError:
         w("Poison mode interrupted")
+    finally:
+        if hasattr(async_engine, "latency_observer"):
+            async_engine.latency_observer = None
 
     # Final summary
     elapsed = state.elapsed
@@ -443,8 +480,6 @@ async def run_poison_assault(
         if remaining is not None:
             budget_note = f" | budget left: {remaining}"
     ph(f"POISON COMPLETE — {elapsed:.0f}s | {state.wave} waves | {len(state.findings)} findings | {len(state.scan_urls)} urls{budget_note}")
-    if hasattr(async_engine, "latency_observer"):
-        async_engine.latency_observer = None
     return (
         state.findings,
         state.params,

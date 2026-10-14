@@ -6,6 +6,7 @@ Probes SSRF-vulnerable parameters against:
 - Internal services (HTTP, Redis, MySQL, PostgreSQL, Docker, K8s, Jenkins)
 - Timing-based port scan (fast, no response body needed)
 """
+import asyncio
 import time
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 
@@ -103,15 +104,20 @@ class SSRFScanner:
     # Cloud Metadata Scan
 
     async def scan_cloud_metadata(self, url: str, param: str) -> list[dict]:
-        """Probe cloud metadata endpoints. Returns findings on hit."""
-        findings = []
+        """Probe cloud metadata endpoints (parallel after one baseline).
+
+        Sequential wall time was ~59s worst-case per scan (N7); gather keeps
+        detection identical (each probe still measures its own latency against
+        the shared baseline) and cuts it to baseline + slowest probe (~11s).
+        """
         baseline_time, _ = await self._baseline(url, param)
 
-        for target, provider, markers in CLOUD_METADATA:
+        async def _probe(target, provider, markers) -> list[dict]:
+            found = []
             try:
                 r = await self._send_probe(url, param, target, timeout=6)
                 if not isinstance(r, dict):
-                    continue
+                    return found
 
                 body = (r.get("body") or "")[:2000]
                 status = r.get("status", 0)
@@ -121,7 +127,7 @@ class SSRFScanner:
                 if status == 200 and body:
                     for marker in markers:
                         if marker.lower() in body.lower():
-                            findings.append({
+                            found.append({
                                 "type": "ssrf_cloud_metadata",
                                 "title": f"SSRF: {provider.upper()} Metadata",
                                 "url": url[:200],
@@ -135,7 +141,7 @@ class SSRFScanner:
                 # Detection: timing anomaly (response much faster than baseline to dead IP)
                 if resp_time > 0 and baseline_time > 0:
                     if resp_time < baseline_time * 0.3 and status > 0:
-                        findings.append({
+                        found.append({
                             "type": "ssrf_cloud_metadata",
                             "title": f"SSRF Timing: {provider.upper()} reachable",
                             "url": url[:200],
@@ -146,23 +152,34 @@ class SSRFScanner:
                         })
 
             except Exception:
-                continue
+                pass
+            return found
 
+        results = await asyncio.gather(
+            *[_probe(t, p, m) for t, p, m in CLOUD_METADATA],
+            return_exceptions=True)
+        findings = []
+        for r in results:
+            if isinstance(r, list):
+                findings.extend(r)
         return findings
 
     # Internal Port Scan
 
     async def scan_internal_ports(self, url: str, param: str,
-                                   max_ports: int = 15) -> list[dict]:
-        """Timing-based internal port scan. Fast — no response body parsing needed."""
-        findings = []
+                                  max_ports: int = 15) -> list[dict]:
+        """Timing-based internal port scan (parallel after baseline).
+
+        Sequential wall was up to ~80s per scan (N7); gather keeps every
+        detection rule unchanged and cuts it to baseline + slowest probe.
+        """
         baseline_time, baseline_r = await self._baseline(url, param)
 
-        for target, port, service_name, marker in INTERNAL_SERVICES[:max_ports]:
+        async def _probe(target, port, service_name, marker):
             try:
                 r = await self._send_probe(url, param, target, timeout=5)
                 if not isinstance(r, dict):
-                    continue
+                    return None
 
                 status = r.get("status", 0)
                 body = (r.get("body") or "")[:500]
@@ -187,7 +204,7 @@ class SSRFScanner:
                     detail = f"Marker: '{marker}' in response"
 
                 if detected:
-                    findings.append({
+                    return {
                         "type": "ssrf_internal_service",
                         "title": f"SSRF: {service_name}",
                         "url": url[:200],
@@ -195,12 +212,18 @@ class SSRFScanner:
                         "param": param,
                         "internal_target": f"{target}:{port}",
                         "confidence": "confirmed" if marker and body and marker.lower() in body.lower() else "suspected",
-                    })
+                    }
 
             except Exception:
-                continue
+                return None
+            return None
 
-        return findings
+        # N7: probes run in parallel — engine semaphore + per-host limiter
+        # still govern real concurrency, wall time drops to baseline + slowest.
+        results = await asyncio.gather(
+            *[_probe(*svc) for svc in INTERNAL_SERVICES[:max_ports]],
+            return_exceptions=True)
+        return [r for r in results if isinstance(r, dict)]
 
     # Full Scan
 

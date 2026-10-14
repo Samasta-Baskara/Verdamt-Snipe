@@ -40,9 +40,9 @@ class ConnectionExhaust:
         self.use_ssl = parsed.scheme == "https"
         self.timeout = timeout
         self.results = {
-            "slowloris": {"attempted": 0, "opened": 0, "refused": 0, "errors": 0},
-            "pool_flood": {"attempted": 0, "completed": 0, "refused": 0, "errors": 0},
-            "chunked_bomb": {"attempted": 0, "opened": 0, "refused": 0, "errors": 0},
+            "slowloris": {"attempted": 0, "opened": 0, "refused": 0, "timeouts": 0, "errors": 0},
+            "pool_flood": {"attempted": 0, "completed": 0, "refused": 0, "timeouts": 0, "errors": 0},
+            "chunked_bomb": {"attempted": 0, "opened": 0, "refused": 0, "timeouts": 0, "errors": 0},
             "total_time": 0,
             "server_downgrade": False,
             "skipped_internal": False,
@@ -111,8 +111,10 @@ class ConnectionExhaust:
                 await writer.wait_closed()
             except Exception:
                 pass
-        except (ConnectionRefusedError, OSError, TimeoutError, asyncio.TimeoutError):
+        except ConnectionRefusedError:
             self.results["slowloris"]["refused"] += 1
+        except TimeoutError:
+            self.results["slowloris"]["timeouts"] += 1
         except Exception:
             self.results["slowloris"]["errors"] += 1
         finally:
@@ -166,8 +168,10 @@ class ConnectionExhaust:
                 await writer.wait_closed()
             except Exception:
                 pass
-        except (ConnectionRefusedError, OSError, TimeoutError, asyncio.TimeoutError):
+        except ConnectionRefusedError:
             self.results["pool_flood"]["refused"] += 1
+        except TimeoutError:
+            self.results["pool_flood"]["timeouts"] += 1
         except Exception:
             self.results["pool_flood"]["errors"] += 1
         finally:
@@ -212,8 +216,10 @@ class ConnectionExhaust:
                 await writer.wait_closed()
             except Exception:
                 pass
-        except (ConnectionRefusedError, OSError, TimeoutError, asyncio.TimeoutError):
+        except ConnectionRefusedError:
             self.results["chunked_bomb"]["refused"] += 1
+        except TimeoutError:
+            self.results["chunked_bomb"]["timeouts"] += 1
         except Exception:
             self.results["chunked_bomb"]["errors"] += 1
         finally:
@@ -253,24 +259,30 @@ class ConnectionExhaust:
 
         total_attempted = sl["attempted"] + pf["attempted"] + cb["attempted"]
         total_refused = sl["refused"] + pf["refused"] + cb["refused"]
+        total_timeouts = sl["timeouts"] + pf["timeouts"] + cb["timeouts"]
+        # Degradation = unavailability (refused OR timed out); generic OSError
+        # (proxy/DNS/TLS failures) says nothing about the target.
         self.results["server_downgrade"] = (
-            total_refused > (total_attempted * 0.3) if total_attempted > 0 else False
+            (total_refused + total_timeouts) > (total_attempted * 0.3)
+            if total_attempted > 0 else False
         )
 
         rows = [
-            ["Slowloris", f"{G if sl['opened'] > sl['refused'] else R}{sl['opened']}/{sl['refused']}/{sl['errors']}{N}",
+            ["Slowloris", f"{G if sl['opened'] > sl['refused'] else R}{sl['opened']}/{sl['refused']}/{sl['timeouts']}/{sl['errors']}{N}",
              f"{'OPEN' if sl['opened'] > 0 else 'BLOCKED'}"],
-            ["Pool Flood", f"{G if pf['completed'] > 100 else ''}{pf['completed']}/{pf['refused']}/{pf['errors']}{N}",
+            ["Pool Flood", f"{G if pf['completed'] > 100 else ''}{pf['completed']}/{pf['refused']}/{pf['timeouts']}/{pf['errors']}{N}",
              f"{'FLOODING' if pf['completed'] > 100 else 'SLOW'}"],
-            ["Chunked Bomb", f"{G if cb['opened'] > 0 else R}{cb['opened']}/{cb['refused']}/{cb['errors']}{N}",
+            ["Chunked Bomb", f"{G if cb['opened'] > 0 else R}{cb['opened']}/{cb['refused']}/{cb['timeouts']}/{cb['errors']}{N}",
              f"{'HANG' if cb['opened'] > 0 else 'REJECTED'}"],
         ]
-        draw_table(["MODE", "OPEN/REFUSED/ERR", "STATUS"], rows, title="Connection Exhaust Results")
+        draw_table(["MODE", "OPEN/REFUSED/TMO/ERR", "STATUS"], rows, title="Connection Exhaust Results")
 
         p(f"Total: {B}{total_attempted}{N} connections in {self.results['total_time']}s")
         if total_refused > 0:
             w(f"{total_refused} connections refused — connection pool showing strain")
+        if total_timeouts > 0:
+            w(f"{total_timeouts} connections timed out — target/proxy unresponsive")
         if self.results["server_downgrade"]:
-            s(f"{R}[!] Server degradation detected{N} — >30% connections refused")
+            s(f"{R}[!] Server degradation detected{N} — >30% connections refused/timed out")
 
         return self.results

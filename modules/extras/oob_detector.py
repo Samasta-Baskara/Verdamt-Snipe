@@ -217,6 +217,7 @@ class OOBDetector:
                         "type": f"blind_{task_type}",
                         "title": f"Blind {task_type.upper()} (OOB Confirmed)",
                         "url": url,
+                        "param": param,
                         "detail": f"Param: {param}, Intercepted via {self.interactsh.domain}",
                         "bypass": "enabled",
                         "waf": "",

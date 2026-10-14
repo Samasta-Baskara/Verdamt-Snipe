@@ -38,7 +38,7 @@ class ScanPolicy:
         allowed_hosts: Optional[Iterable[str]] = None,
         allowed_ports: Optional[Iterable[int]] = None,
         mode: str = "active",
-        max_requests: Optional[int] = 10_000,
+        max_requests: Optional[int] = 30_000,
         max_concurrency: Optional[int] = 100,
         max_timeout: float = 30.0,
         dry_run: bool = False,

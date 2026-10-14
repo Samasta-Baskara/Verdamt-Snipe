@@ -74,6 +74,19 @@ CVSS_DB = {
     "api_schema_exposed": {"s":0.0,"v":"Info","vec":"N/A"},
     "graphql_introspection": {"s":0.0,"v":"Info","vec":"N/A"},
     "dangerous_methods_allowed": {"s":0.0,"v":"Info","vec":"N/A"},
+    # Sensitive-file exposure (poison mode verifier, Package 1)
+    "git_exposure":       {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "private_key_exposure": {"s":9.1,"v":"Critical","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"},
+    "cert_key_exposure":  {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "env_exposure":       {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "phpinfo_disclosure": {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+    "database_dump":      {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "config_backup":      {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "source_backup":      {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "config_exposure":    {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "ds_store_leak":      {"s":3.7,"v":"Low","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+    "backup_archive":     {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+    "directory_listing":  {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
 }
 
 # Auto-map js_secret_* types

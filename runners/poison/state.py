@@ -16,14 +16,6 @@ from modules.wordlists import WordlistProvider, PROVIDER
 from runners.shared import inject_query_payload
 
 
-
-from core.external_tools import _find_tool
-from core.ui import ph, i, w, s, p, G, C, B, N
-from core.proxy_manager import get_global_proxy_manager
-from modules.wordlists import WordlistProvider, PROVIDER
-from runners.shared import inject_query_payload
-
-
 # Credential wordlists live in modules/wordlists.py (PROVIDER).
 
 COMMON_CREDS = [
@@ -101,6 +93,63 @@ def _loc_path(location: str) -> str:
     return (urlparse(location or "").path or "/").rstrip("/") or "/"
 
 
+def _parse_finding_param(detail: Optional[str]) -> str:
+    """Param name out of a finding's detail string.
+
+    Two wire formats exist: ``Param: x | ...`` (flood findings) and
+    ``Param: x, Intercepted via <domain>`` (OOB findings, oob_detector.py).
+    The old split("|") on the OOB format kept the whole suffix — SSRFScanner
+    then received ``x, Intercepted via ...`` as the param name, never matched
+    a query key, and the auto-chain silently probed garbage (N1, 2026-10-14).
+    """
+    text = detail or ""
+    if "Param:" not in text:
+        return ""
+    segment = text.split("Param:", 1)[1].strip()
+    for sep in (" | ", ", Intercepted via"):
+        if sep in segment:
+            segment = segment.split(sep, 1)[0]
+    return segment.strip()
+
+
+def _exhaust_finding(results: dict, url: str) -> Optional[dict]:
+    """Classify connection-exhaust counters into an honest finding (N2, 2026-10-14).
+
+    Only hard ECONNREFUSED proves pool exhaustion. The old bucket also
+    swallowed TimeoutError and generic OSError (proxy/DNS/TLS), so a slow
+    target or congested proxy produced confidence "confirmed" — pure FP.
+    Through a proxy PySocks raises ProxyConnectionError/GeneralProxyError
+    (OSError subclasses, NOT ConnectionRefusedError), so proxy failures land
+    in "errors" and can never claim "confirmed" attribution.
+    """
+    if not isinstance(results, dict) or results.get("total_time", 0) <= 0:
+        return None
+    sl = results.get("slowloris") or {}
+    pf = results.get("pool_flood") or {}
+    cb = results.get("chunked_bomb") or {}
+    refused = sl.get("refused", 0) + pf.get("refused", 0) + cb.get("refused", 0)
+    timeouts = sl.get("timeouts", 0) + pf.get("timeouts", 0) + cb.get("timeouts", 0)
+    attempted = sl.get("attempted", 0) + pf.get("attempted", 0) + cb.get("attempted", 0)
+    if refused > 50:
+        return {
+            "type": "conn_exhaust_pressure",
+            "title": "Connection Pool Under Pressure",
+            "url": url[:200],
+            "detail": f"{refused}/{attempted} connections refused (ECONNREFUSED) — pool exhaustion detected",
+            "confidence": "confirmed",
+        }
+    if timeouts > 50:
+        return {
+            "type": "conn_exhaust_timeout",
+            "title": "Connections Timing Out Under Load",
+            "url": url[:200],
+            "detail": (f"{timeouts}/{attempted} connections timed out — server unresponsive "
+                       "under load (slow backend or proxy; pool exhaustion not proven)"),
+            "confidence": "suspected",
+        }
+    return None
+
+
 def _budget_ok(state) -> bool:
     """False once the scan policy request budget is exhausted.
 
@@ -114,9 +163,15 @@ def _budget_ok(state) -> bool:
     return remaining is None or remaining > 0
 
 
+# Old hard cap 45s killed ffuf at ~30% wordlist coverage on slow/proxied
+# legacy hosts (Paket 3, bedah 2026-10-14) — 120s balances coverage vs
+# starving the other phases inside one wave.
+FFUF_TIMEOUT_CAP = 120
+
+
 def _ffuf_timeout(state) -> int:
-    """ffuf wall-clock budget, never beyond the remaining scan duration."""
-    return max(1, min(45, int(state.time_left)))
+    """ffuf wall-clock budget, bounded by remaining wave time."""
+    return max(1, min(FFUF_TIMEOUT_CAP, int(state.time_left)))
 
 
 def _charge_external(state, n: int, what: str) -> bool:
@@ -223,6 +278,13 @@ class PoisonState:
         # target list is stable, so A1/A3/later waves would repeat identical
         # param discovery without it.
         self._param_scanned: Set[str] = set()
+        # SSRF auto-chain targets already scanned this run — OOB re-fires the
+        # same (url,param) every wave (fresh marker), which used to re-run the
+        # full 21-26 probe series per wave (N7).
+        self._ssrf_scanned: Set[tuple] = set()
+        # Sensitive-file URLs already fetched+verified this run — ffuf waves
+        # overlap (auth/3xx lists repeat), so never spend the same probe twice.
+        self._verified_paths: Set[str] = set()
         # Adaptive concurrency: rolling window of real per-request latencies
         # plus the timestamp of the last downscale (hysteresis for escalation).
         self.latency_window = deque(maxlen=LATENCY_WINDOW)

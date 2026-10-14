@@ -125,7 +125,7 @@ class TestParsePolicyOptions(unittest.TestCase):
     def test_defaults(self):
         opts = parse_scan_policy_options([])
         self.assertEqual(opts["mode"], "active")
-        self.assertEqual(opts["max_requests"], 10_000)
+        self.assertEqual(opts["max_requests"], 30_000)
         self.assertEqual(opts["allowed_ports"], (80, 443))
         self.assertFalse(opts["dry_run"])
 

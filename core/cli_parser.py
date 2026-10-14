@@ -212,7 +212,7 @@ def parse_scan_policy_options(flags: List[str]) -> Dict:
     """Parse bounded operational controls without changing scan mode parsing."""
     options = {
         "mode": "passive" if "--passive" in flags else "active",
-        "max_requests": 10_000,
+        "max_requests": 30_000,
         "max_concurrency": 100,
         "max_timeout": 30.0,
         "allowed_hosts": None,

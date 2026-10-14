@@ -2,23 +2,36 @@ import asyncio
 import time
 import unittest
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from runners.poison import (
     PoisonState,
+    _BACKUP_EXTS,
+    EXT_PASS_MAX,
     _adaptive_wave_loop,
     _budget_ok,
+    _budget_warning,
+    _brute_login_form,
     _classify_login_attempt,
     _cookie_names,
+    _cred_list,
+    _edge_shields_origin,
+    _exhaust_finding,
+    _fetch_login_form,
     _ffuf_timeout,
     _get_header,
     _hold_for_backoff,
+    _parse_finding_param,
     _post_payload_pass,
+    _rot_slice,
     _run_ffuf,
     phase_bruteforce,
     phase_connection_exhaust,
+    phase_oob,
     phase_param_flood,
     phase_payload_flood,
+    phase_smuggling,
     run_poison_assault,
+    verify_sensitive_files,
 )
 
 
@@ -209,7 +222,7 @@ class TestDeadline(unittest.TestCase):
         state.max_duration = 0
         self.assertEqual(_ffuf_timeout(state), 1)
         state.max_duration = 10_000
-        self.assertEqual(_ffuf_timeout(state), 45)   # hard cap
+        self.assertEqual(_ffuf_timeout(state), 120)  # Paket 3 cap (was 45)
 
     def test_wave_loop_is_noop_when_time_is_up(self):
         state = self._state()
@@ -793,6 +806,948 @@ class TestPayloadFloodBaselineGuard(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             any(f["type"] == "ssti" for f in st.findings),
             "a cached baseline must keep tail detection working")
+
+
+class TestSSRFAutoChainParam(unittest.IsolatedAsyncioTestCase):
+    """N1 regression (bedah 2026-10-14).
+
+    OOB finding detail format is 'Param: x, Intercepted via <domain>' —
+    the old split("|") kept the whole suffix, so SSRFScanner._inject got
+    ``x, Intercepted via ...`` as the param name, never matched a query
+    key, and the auto-chain silently probed garbage forever.
+    """
+
+    OOB_DETAIL = "Param: next, Intercepted via x9k2.oast.pro"
+
+    def test_parse_oob_detail_format(self):
+        self.assertEqual(_parse_finding_param(self.OOB_DETAIL), "next")
+
+    def test_parse_flood_detail_format(self):
+        self.assertEqual(
+            _parse_finding_param("Param: id | Error: mysql syntax"), "id")
+
+    def test_parse_missing_param_returns_empty(self):
+        self.assertEqual(_parse_finding_param("Header: X — reflected"), "")
+        self.assertEqual(_parse_finding_param(""), "")
+        self.assertEqual(_parse_finding_param(None), "")
+
+    async def test_phase_oob_passes_clean_param_to_scanner(self):
+        import modules.extras.oob_detector as oob_mod
+        import modules.web.server_side.ssrf_scanner as ssrf_mod
+
+        captured = []
+
+        class FakeOOB:
+            def __init__(self, *a, **kw):
+                self.interactsh = type("D", (), {"domain": ""})()
+
+            async def run(self):
+                return [
+                    {   # old-format finding: no structured "param" key
+                        "type": "blind_ssrf",
+                        "title": "Blind SSRF (OOB Confirmed)",
+                        "url": "https://target.example/view",
+                        "detail": self_oob_detail,
+                    },
+                    {   # structured field present, detail WITHOUT "Param:"
+                        "type": "blind_ssrf",
+                        "title": "Blind SSRF (OOB Confirmed)",
+                        "url": "https://target.example/view",
+                        "param": "uid",
+                        "detail": "Intercepted via x9k2.oast.pro",
+                    },
+                ]
+
+        self_oob_detail = self.OOB_DETAIL
+
+        class FakeScanner:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def scan(self, url, param):
+                captured.append((url, param))
+                return []
+
+        state = PoisonState(
+            target="target.example",
+            seed_url="https://target.example",
+            services=[{"url": "https://target.example"}],
+            subs=[],
+            scan_urls=["https://target.example/"],
+            scope_guard=None,
+            session_manager=MagicMock(),
+            async_engine=MagicMock(),
+            is_turbo=False,
+        )
+        state.params = {"view": ["next", "uid"]}
+
+        with patch.object(oob_mod, "OOBDetector", FakeOOB), \
+                patch.object(ssrf_mod, "SSRFScanner", FakeScanner):
+            await phase_oob(state)
+
+        self.assertEqual(
+            captured,
+            [("https://target.example/view", "next"),
+             ("https://target.example/view", "uid")],
+            "SSRFScanner must receive the bare param name, never the "
+            "'..., Intercepted via ...' suffix")
+
+    async def test_ssrp_scan_deduped_across_waves(self):
+        import modules.extras.oob_detector as oob_mod
+        import modules.web.server_side.ssrf_scanner as ssrf_mod
+
+        calls = []
+
+        class FakeOOB:
+            def __init__(self, *a, **kw):
+                self.interactsh = type("D", (), {"domain": ""})()
+
+            async def run(self):
+                # Fresh marker every wave -> a fresh finding object each call
+                return [{"type": "blind_ssrf",
+                         "url": "https://target.example/view",
+                         "param": "next",
+                         "detail": "Param: next, Intercepted via x.oast.pro"}]
+
+        class FakeScanner:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def scan(self, url, param):
+                calls.append((url, param))
+                return []
+
+        state = PoisonState(
+            target="target.example",
+            seed_url="https://target.example",
+            services=[{"url": "https://target.example"}],
+            subs=[],
+            scan_urls=["https://target.example/"],
+            scope_guard=None,
+            session_manager=MagicMock(),
+            async_engine=MagicMock(),
+            is_turbo=False,
+        )
+        state.params = {"view": ["next"]}
+
+        with patch.object(oob_mod, "OOBDetector", FakeOOB), \
+                patch.object(ssrf_mod, "SSRFScanner", FakeScanner):
+            await phase_oob(state)   # wave 1
+            state.wave += 1
+            await phase_oob(state)   # wave 2 — same (url, param)
+
+        self.assertEqual(
+            len(calls), 1,
+            "second wave must not re-run the whole SSRF probe series")
+
+
+class TestExhaustClassification(unittest.TestCase):
+    """N2 regression (bedah 2026-10-14): the refused bucket must hold only
+    hard ECONNREFUSED — TimeoutError and generic OSError (proxy/DNS) were
+    counted as "refused" and reported confidence "confirmed" (FP)."""
+
+    @staticmethod
+    def _results(refused=0, timeouts=0, errors=0, attempted=250, total_time=30.0):
+        # Signal counts live in slowloris only; attempted is spread over the
+        # 3 modes (3 x 250 = 750 aggregate) so totals read naturally.
+        slow = {"attempted": attempted, "opened": 0, "refused": refused,
+                "timeouts": timeouts, "errors": errors}
+        pool = {"attempted": attempted, "completed": 0, "refused": 0,
+                "timeouts": 0, "errors": 0}
+        chunk = {"attempted": attempted, "opened": 0, "refused": 0,
+                 "timeouts": 0, "errors": 0}
+        return {"slowloris": slow, "pool_flood": pool, "chunked_bomb": chunk,
+                "total_time": total_time}
+
+    def test_hard_refusal_is_confirmed(self):
+        f = _exhaust_finding(self._results(refused=51), "https://x.example/")
+        assert f is not None
+        self.assertEqual(f["confidence"], "confirmed")
+        self.assertEqual(f["type"], "conn_exhaust_pressure")
+        # N3: denominator is attempted, not the skewed open/refused sum
+        self.assertIn("51/750", f["detail"])
+
+    def test_timeouts_only_are_suspected(self):
+        f = _exhaust_finding(self._results(timeouts=51), "https://x.example/")
+        assert f is not None
+        self.assertEqual(f["confidence"], "suspected")
+        self.assertEqual(f["type"], "conn_exhaust_timeout")
+        self.assertIn("not proven", f["detail"])
+
+    def test_no_signal_no_finding(self):
+        self.assertIsNone(_exhaust_finding(self._results(timeouts=10, refused=5), "u"))
+        self.assertIsNone(_exhaust_finding({"total_time": 0}, "u"))
+        self.assertIsNone(_exhaust_finding({}, "u"))
+
+    def test_old_results_shape_without_timeouts_key(self):
+        r = self._results(refused=51)
+        for m in ("slowloris", "pool_flood", "chunked_bomb"):
+            del r[m]["timeouts"]
+        f = _exhaust_finding(r, "u")
+        assert f is not None
+        self.assertEqual(f["confidence"], "confirmed")
+
+    def test_counter_split_by_exception_class(self):
+        from modules.web.server_side.connection_exhaust import ConnectionExhaust
+
+        async def run_one(exc):
+            ex = ConnectionExhaust("https://example.com", timeout=30)
+
+            async def boom():
+                raise exc
+            ex._open_connection = boom
+            await ex._slowloris_async(1)
+            return ex.results["slowloris"]
+
+        for exc, bucket in [
+            (ConnectionRefusedError(), "refused"),
+            (TimeoutError(), "timeouts"),
+            (OSError("socks proxy dead"), "errors"),  # old code: counted as refused
+        ]:
+            r = asyncio.run(run_one(exc))
+            self.assertEqual(r[bucket], 1,
+                             f"{type(exc).__name__} must land in {bucket}")
+            for other in ({"refused", "timeouts", "errors"} - {bucket}):
+                self.assertEqual(r[other], 0,
+                                 f"{type(exc).__name__} leaked into {other}")
+
+
+class TestK5RedirectPass(unittest.IsolatedAsyncioTestCase):
+    """K5 (2026-10-14): main -fc 404,301,302 dropped redirect-only routes.
+    Empiris: demo.testfire.net /admin is 3xx-only and was missed; a separate
+    -mc 301,302,303,307,308 pass finds it, with -ac killing catch-all noise."""
+
+    async def test_run_ffuf_flag_construction(self):
+        captured = {}
+
+        class FakeProc:
+            async def communicate(self):
+                return (b"", b"")
+
+            def kill(self):
+                pass
+
+            async def wait(self):
+                pass
+
+        async def fake_exec(*args, **kw):
+            captured.setdefault("runs", []).append(args)
+            return FakeProc()
+
+        with patch("runners.poison.flood._find_tool",
+                   return_value="/usr/bin/ffuf"), \
+                patch("runners.poison.flood.asyncio.create_subprocess_exec",
+                      side_effect=fake_exec):
+            await _run_ffuf("https://example.com/", ["a"] * 5, "", 10)
+            await _run_ffuf("https://example.com/", ["a"] * 5, "", 10,
+                            match_codes="301,302,303,307,308",
+                            filter_codes="404")
+        main, redir = captured["runs"]
+        self.assertNotIn("-mc", main)          # main pass byte-identical
+        self.assertEqual(main[main.index("-fc") + 1], "404,301,302")
+        self.assertEqual(redir[redir.index("-mc") + 1], "301,302,303,307,308")
+        self.assertEqual(redir[redir.index("-fc") + 1], "404")
+
+    async def test_phase_bruteforce_dispatches_3xx_pass(self):
+        state = PoisonState(
+            target="example.com", seed_url="https://example.com",
+            services=[{"url": "https://example.com"}], subs=[],
+            scan_urls=["https://example.com/"], scope_guard=None,
+            session_manager=MagicMock(), async_engine=MagicMock(),
+            is_turbo=False)
+        with patch("runners.poison.flood._run_ffuf",
+                   new=AsyncMock(return_value=[])) as ffuf:
+            await phase_bruteforce(state)
+        kws = [c.kwargs for c in ffuf.call_args_list]
+        self.assertTrue(
+            any(k.get("match_codes") == "301,302,303,307,308" for k in kws),
+            f"3xx pass missing from phase_bruteforce calls: {kws}")
+
+
+class TestObserverCleanup(unittest.IsolatedAsyncioTestCase):
+    """N6 (2026-10-14): latency_observer must not outlive the run when an
+    unexpected exception escapes the wave loop."""
+
+    async def test_observer_cleared_on_unexpected_exception(self):
+        import runners.poison.orchestrator as orch
+        engine = MagicMock()   # hasattr(engine, "latency_observer") == True
+
+        async def fake_loop(state):
+            raise RuntimeError("boom")
+
+        with patch.object(orch, "WordlistProvider") as WProv, \
+                patch.object(orch, "_adaptive_wave_loop", new=fake_loop), \
+                patch("modules.waf.bypass_engine.waf_bypass_pipeline",
+                      new=AsyncMock(return_value={})):
+            WProv.return_value._local = True
+            with self.assertRaises(RuntimeError):
+                await run_poison_assault(
+                    "example.com", "https://example.com",
+                    [], [], ["https://example.com/"], None,
+                    MagicMock(), engine, max_duration=5)
+
+        self.assertIsNone(engine.latency_observer,
+                          "observer leaked past an unexpected exception")
+
+
+class TestSSRFScanParallel(unittest.TestCase):
+    """N7: cloud probes must gather, not walk the list one-by-one."""
+
+    def test_cloud_probes_gather_not_sequential(self):
+        import time as _time
+        from modules.web.server_side.ssrf_scanner import SSRFScanner
+
+        scanner = SSRFScanner(MagicMock())
+
+        async def slow_probe(url, param, target, timeout=5):
+            await asyncio.sleep(0.15)
+            return {"status": 404, "headers": {}, "body": "", "time": 0.15}
+
+        scanner._send_probe = slow_probe
+        t0 = _time.monotonic()
+        out = asyncio.run(scanner.scan_cloud_metadata("https://t.example/", "q"))
+        wall = _time.monotonic() - t0
+        # Sequential: baseline + 9 probes = 10 x 0.15 = 1.5s+;
+        # parallel: baseline + slowest probe ~0.3-0.6s.
+        self.assertLess(wall, 1.0)
+        self.assertEqual(out, [])
+
+
+class TestSensitiveFileVerifier(unittest.IsolatedAsyncioTestCase):
+    """Package 1 (bedah 2026-10-14): ffuf sensitive-file discoveries must
+    become verified findings — body evidence required, soft-404-proof."""
+
+    SOFT404 = ("<html><head><title>Welcome to nginx!</title></head>"
+               "<body><center>404 custom page</center></body></html>")
+
+    @staticmethod
+    def _resp(status=200, body="", headers=None):
+        return {"status": status, "body": body, "headers": headers or {},
+                "waf": [], "time": 0.1}
+
+    @staticmethod
+    def _state():
+        return PoisonState(
+            target="t.example", seed_url="https://t.example",
+            services=[{"url": "https://t.example"}], subs=[],
+            scan_urls=["https://t.example/"], scope_guard=None,
+            session_manager=MagicMock(), async_engine=MagicMock(),
+            is_turbo=False)
+
+    @staticmethod
+    def _engine(pages):
+        """Exact-URL pages; every other path answers the soft-404 page."""
+        calls = []
+
+        async def ahttp_send(url, timeout=5, state_context=None, **kw):
+            calls.append(url)
+            return dict(pages.get(
+                url, TestSensitiveFileVerifier._resp(
+                    200, TestSensitiveFileVerifier.SOFT404)))
+        eng = MagicMock()
+        eng.ahttp_send = ahttp_send
+        eng.calls = calls
+        return eng
+
+    async def test_git_head_verified(self):
+        st = self._state()
+        eng = self._engine({"https://t.example/.git/HEAD":
+                            self._resp(200, "ref: refs/heads/main\n")})
+        st.async_engine = eng
+        n = await verify_sensitive_files(st, ["https://t.example/.git/HEAD"])
+        self.assertEqual(n, 1)
+        self.assertEqual(st.findings[0]["type"], "git_exposure")
+        self.assertEqual(st.findings[0]["confidence"], "confirmed")
+        self.assertIn("ref: refs/heads", st.findings[0]["detail"])
+
+    async def test_env_verified(self):
+        env_body = "APP_KEY=base64:xxxx\nDB_PASSWORD=hunter2\nAPP_DEBUG=true\n"
+        st = self._state()
+        eng = self._engine({"https://t.example/.env": self._resp(200, env_body)})
+        st.async_engine = eng
+        await verify_sensitive_files(st, ["https://t.example/.env"])
+        self.assertEqual(st.findings[0]["type"], "env_exposure")
+
+    async def test_soft404_never_reported(self):
+        st = self._state()
+        eng = self._engine({})   # every path = custom 200 page
+        st.async_engine = eng
+        n = await verify_sensitive_files(
+            st, ["https://t.example/dump.sql", "https://t.example/.env",
+                 "https://t.example/wp-config.php.bak",
+                 "https://t.example/files/", "https://t.example/"])
+        self.assertEqual(n, 0)
+        self.assertEqual(st.findings, [])
+
+    async def test_private_key_verified(self):
+        st = self._state()
+        eng = self._engine({"https://t.example/.ssh/id_rsa":
+                            self._resp(200, "-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl")})
+        st.async_engine = eng
+        await verify_sensitive_files(st, ["https://t.example/.ssh/id_rsa"])
+        self.assertEqual(st.findings[0]["type"], "private_key_exposure")
+
+    async def test_directory_listing_verified(self):
+        listing = ("<html><head><title>Index of /files</title></head>"
+                   "<a href=\"backup.zip\">backup.zip</a></html>")
+        st = self._state()
+        eng = self._engine({"https://t.example/files/": self._resp(200, listing)})
+        st.async_engine = eng
+        await verify_sensitive_files(st, ["https://t.example/files/"])
+        self.assertEqual(st.findings[0]["type"], "directory_listing")
+        self.assertEqual(st.findings[0]["confidence"], "confirmed")
+
+    async def test_redirect_slash_retry(self):
+        listing = "<title>Index of /backup/</title><a href=\"x\">x</a>"
+        st = self._state()
+        eng = self._engine({
+            "https://t.example/backup":
+                self._resp(301, "", {"Location": "/backup/"}),
+            "https://t.example/backup/": self._resp(200, listing)})
+        st.async_engine = eng
+        n = await verify_sensitive_files(st, ["https://t.example/backup"])
+        self.assertEqual(n, 1)
+        self.assertIn("https://t.example/backup/", eng.calls)
+        # slash-form marked: if ffuf also found it, no double report
+        self.assertIn("https://t.example/backup/", st._verified_paths)
+
+    async def test_archive_size_only_suspected(self):
+        st = self._state()
+        big = "PK\x03\x04fakezip" + "A" * 25000
+        eng = self._engine({"https://t.example/site-backup.zip":
+                            self._resp(200, big)})
+        st.async_engine = eng
+        await verify_sensitive_files(st, ["https://t.example/site-backup.zip"])
+        self.assertEqual(st.findings[0]["type"], "backup_archive")
+        self.assertEqual(st.findings[0]["confidence"], "suspected")
+
+    async def test_verify_cap_bounded(self):
+        import runners.poison.flood as flood_mod
+        urls = [f"https://t.example/f{i}.sql" for i in range(10)]
+        pages = {u: self._resp(200, "CREATE TABLE t (id int);") for u in urls[:3]}
+        st = self._state()
+        eng = self._engine(pages)
+        st.async_engine = eng
+        with patch.object(flood_mod, "MAX_SENSITIVE_VERIFY", 3):
+            n = await verify_sensitive_files(st, urls)
+        self.assertEqual(n, 3)
+        self.assertEqual(len(eng.calls), 4)   # 1 baseline + 3 verifies
+
+    async def test_budget_exhausted_sends_nothing(self):
+        from core.policy import ScanPolicy
+        pol = ScanPolicy("t.example", max_requests=2, max_concurrency=10)
+        pol.charge(2, reason="test")
+        st = self._state()
+        eng = self._engine({})
+        st.async_engine = eng
+        st.policy = pol
+        n = await verify_sensitive_files(st, ["https://t.example/.env"])
+        self.assertEqual(n, 0)
+        self.assertEqual(eng.calls, [])
+
+    async def test_verified_urls_not_rechecked_next_wave(self):
+        st = self._state()
+        eng = self._engine({"https://t.example/.env":
+                            self._resp(200, "A=1\nB=2\n")})
+        st.async_engine = eng
+        await verify_sensitive_files(st, ["https://t.example/.env"])
+        calls_after_wave1 = len(eng.calls)
+        n2 = await verify_sensitive_files(st, ["https://t.example/.env"])
+        self.assertEqual(n2, 0)
+        self.assertEqual(len(eng.calls), calls_after_wave1)
+
+    async def test_extension_urls_cost_zero_requests(self):
+        st = self._state()
+        eng = self._engine({})
+        st.async_engine = eng
+        n = await verify_sensitive_files(
+            st, ["https://t.example/index.html", "https://t.example/a.bak~"])
+        self.assertEqual(n, 0)
+        self.assertEqual(eng.calls, [])
+
+    async def test_phase_bruteforce_reports_sensitive_hits(self):
+        st = self._state()
+        eng = self._engine({"https://t.example/.git/HEAD":
+                            self._resp(200, "ref: refs/heads/master\n")})
+        st.async_engine = eng
+        with patch("runners.poison.flood._run_ffuf",
+                   new=AsyncMock(return_value=["https://t.example/.git/HEAD"])):
+            await phase_bruteforce(st)
+        types = [f["type"] for f in st.findings]
+        self.assertIn("git_exposure", types)
+
+
+class TestLoginFormBrute(unittest.IsolatedAsyncioTestCase):
+    """Package 2 (bedah 2026-10-14): brute the REAL parsed form — field
+    names, hidden-token replay, action URL, cap, token refresh. The old
+    hard-coded username/password block produced zero signal on user/pass
+    and ASP.NET forms."""
+
+    FORM_PHP = ("<html><body><form action=\"/do_login\" method=\"post\">"
+                "<input type=\"hidden\" name=\"csrf_token\" value=\"tok123\">"
+                "<input type=\"text\" name=\"user\">"
+                "<input type=\"password\" name=\"pass\">"
+                "<input type=\"submit\" value=\"Login\">"
+                "</form></body></html>")
+
+    FORM_ASPX = ("<html><body><form action=\"/login.aspx\" method=\"post\">"
+                 "<input type=\"hidden\" name=\"__VIEWSTATE\" value=\"VSBLOB\">"
+                 "<input type=\"hidden\" name=\"__EVENTVALIDATION\" value=\"EV\">"
+                 "<input id=\"txtUser\" name=\"txtUser\" type=\"text\">"
+                 "<input id=\"txtpwd\" name=\"txtpwd\" type=\"password\">"
+                 "</form></body></html>")
+
+    FORM_EMAIL = ("<form method=\"post\">"
+                  "<input type=\"email\" name=\"email\">"
+                  "<input type=\"password\" name=\"password\">"
+                  "</form>")
+
+    @staticmethod
+    def _resp(status=200, body="", headers=None):
+        return {"status": status, "body": body, "headers": headers or {},
+                "waf": [], "time": 0.1}
+
+    def _state(self):
+        return PoisonState(
+            target="t.example", seed_url="https://t.example",
+            services=[{"url": "https://t.example"}], subs=[],
+            scan_urls=["https://t.example/login"], scope_guard=None,
+            session_manager=MagicMock(), async_engine=MagicMock(),
+            is_turbo=False)
+
+    @staticmethod
+    def _engine(handler):
+        """handler(url, method, data) -> response dict."""
+        calls = []
+
+        async def ahttp_send(url, method="GET", headers=None, data=None,
+                             timeout=5, state_context=None, **kw):
+            calls.append((url, method, data))
+            return handler(url, method, data)
+        eng = MagicMock()
+        eng.ahttp_send = ahttp_send
+        eng.calls = calls
+        return eng
+
+    async def test_parser_extracts_php_form(self):
+        st = self._state()
+        st.async_engine = self._engine(
+            lambda u, m, d: self._resp(200, self.FORM_PHP))
+        form = await _fetch_login_form(st, "https://t.example/login")
+        self.assertEqual(form["action"], "https://t.example/do_login")
+        self.assertEqual(form["method"], "POST")
+        self.assertEqual(form["user_field"], "user")
+        self.assertEqual(form["pass_field"], "pass")
+        self.assertEqual(form["hidden"], {"csrf_token": "tok123"})
+
+    async def test_parser_aspx_fields_and_hidden(self):
+        st = self._state()
+        st.async_engine = self._engine(
+            lambda u, m, d: self._resp(200, self.FORM_ASPX))
+        form = await _fetch_login_form(st, "https://t.example/login")
+        self.assertEqual(form["user_field"], "txtUser")
+        self.assertEqual(form["pass_field"], "txtpwd")
+        self.assertEqual(form["hidden"]["__VIEWSTATE"], "VSBLOB")
+
+    async def test_email_field_is_user_field(self):
+        st = self._state()
+        st.async_engine = self._engine(
+            lambda u, m, d: self._resp(200, self.FORM_EMAIL))
+        form = await _fetch_login_form(st, "https://t.example/login")
+        self.assertEqual(form["user_field"], "email")
+
+    async def test_true_positive_via_real_fields(self):
+        from urllib.parse import parse_qs
+        st = self._state()
+
+        def handler(url, method, data):
+            if method == "GET":
+                return self._resp(200, self.FORM_PHP)
+            fields = parse_qs(data or "")
+            if fields.get("user") == ["admin"] and fields.get("pass") == ["admin123"]:
+                return self._resp(302, "", {"Location": "/dashboard"})
+            return self._resp(200, "invalid credentials")
+
+        st.async_engine = self._engine(handler)
+        await _brute_login_form(st, "https://t.example/login")
+        self.assertEqual(st.findings[0]["type"], "weak_credentials")
+        self.assertEqual(st.findings[0]["confidence"], "confirmed")
+        self.assertIn("form user/pass", st.findings[0]["detail"])
+        self.assertEqual(
+            st.session_cookies["https://t.example/login"]["password"],
+            "admin123")
+
+    async def test_false_positive_guard_identical_redirect(self):
+        from urllib.parse import parse_qs
+        st = self._state()
+
+        def handler(url, method, data):
+            if method == "GET":
+                return self._resp(200, self.FORM_PHP)
+            fields = parse_qs(data or "")
+            # identical redirect for baseline AND every cred — classic FP trap
+            if fields.get("user") == ["admin"]:
+                return self._resp(302, "", {"Location": "/login?e=1"})
+            return self._resp(302, "", {"Location": "/login?e=1"})
+
+        st.async_engine = self._engine(handler)
+        await _brute_login_form(st, "https://t.example/login")
+        self.assertEqual(st.findings, [])
+
+    async def test_aspx_viewstate_replayed(self):
+        import runners.poison.flood as flood_mod
+        from urllib.parse import parse_qs
+        st = self._state()
+        posts = []
+
+        def handler(url, method, data):
+            if method == "GET":
+                return self._resp(200, self.FORM_ASPX)
+            posts.append(parse_qs(data or ""))
+            return self._resp(200, "login failed")
+
+        st.async_engine = self._engine(handler)
+        with patch.object(flood_mod, "MAX_LOGIN_ATTEMPTS", 2):
+            await _brute_login_form(st, "https://t.example/login")
+        self.assertTrue(posts)
+        for fields in posts:
+            self.assertEqual(fields["__VIEWSTATE"], ["VSBLOB"])
+            self.assertEqual(fields["__EVENTVALIDATION"], ["EV"])
+            self.assertIn("txtUser", fields)
+
+    async def test_cap_bounds_attempts(self):
+        import runners.poison.flood as flood_mod
+        from urllib.parse import parse_qs
+        st = self._state()
+        posts = []
+
+        def handler(url, method, data):
+            if method == "GET":
+                return self._resp(200, self.FORM_EMAIL)
+            posts.append(parse_qs(data or ""))
+            return self._resp(200, "invalid")
+
+        st.async_engine = self._engine(handler)
+        with patch.object(flood_mod, "MAX_LOGIN_ATTEMPTS", 5):
+            await _brute_login_form(st, "https://t.example/login")
+        # cap 5: baseline + 5 attempts; GET = 1 form fetch (email form: no token)
+        self.assertEqual(len(posts), 6)
+        gets = [c for c in st.async_engine.calls if c[1] == "GET"]
+        self.assertEqual(len(gets), 1)
+
+    async def test_token_refresh_every_n(self):
+        import runners.poison.flood as flood_mod
+        st = self._state()
+
+        def handler(url, method, data):
+            if method == "GET":
+                return self._resp(200, self.FORM_PHP)
+            return self._resp(200, "invalid")
+
+        st.async_engine = self._engine(handler)
+        with patch.object(flood_mod, "MAX_LOGIN_ATTEMPTS", 6), \
+                patch.object(flood_mod, "TOKEN_REFRESH_EVERY", 3):
+            await _brute_login_form(st, "https://t.example/login")
+        gets = [c for c in st.async_engine.calls if c[1] == "GET"]
+        # initial fetch + refresh at attempts==3 (cap hits before attempts==6 refresh)
+        self.assertEqual(len(gets), 2)
+
+    async def test_get_method_form_uses_query(self):
+        form_get = ("<form method=\"get\">"
+                    "<input type=\"text\" name=\"u\">"
+                    "<input type=\"password\" name=\"p\">"
+                    "</form>")
+        st = self._state()
+
+        def handler(url, method, data):
+            if method == "GET":
+                return self._resp(200, form_get)
+            return self._resp(200, "invalid")
+
+        st.async_engine = self._engine(handler)
+        import runners.poison.flood as flood_mod
+        with patch.object(flood_mod, "MAX_LOGIN_ATTEMPTS", 1):
+            await _brute_login_form(st, "https://t.example/login")
+        queries = [c[0] for c in st.async_engine.calls
+                   if c[0].startswith("https://t.example/login?")]
+        self.assertTrue(queries, "GET form must send creds via query string")
+        self.assertIn("u=___nonexistent___", queries[0])
+
+    async def test_no_form_single_fetch_only(self):
+        st = self._state()
+        st.async_engine = self._engine(
+            lambda u, m, d: self._resp(200, "<html>nothing here</html>"))
+        await _brute_login_form(st, "https://t.example/login")
+        self.assertEqual(len(st.async_engine.calls), 1)   # fetch, no attempts
+
+    async def test_form_fetch_follows_slash_redirect(self):
+        """nginx /login -> 301 /login/ : the form lives behind the hop."""
+        st = self._state()
+
+        def handler(u, m, d):
+            if u == "https://t.example/login":
+                return self._resp(301, "", {"Location": "/login/"})
+            return self._resp(200, self.FORM_PHP)
+
+        st.async_engine = self._engine(handler)
+        form = await _fetch_login_form(st, "https://t.example/login")
+        self.assertIsNotNone(form)
+        self.assertEqual(form["user_field"], "user")
+        self.assertEqual(form["action"], "https://t.example/do_login")
+
+    async def test_form_fetch_refuses_off_host_redirect(self):
+        st = self._state()
+        st.async_engine = self._engine(
+            lambda u, m, d: self._resp(
+                301, "", {"Location": "https://evil.example/login/"}))
+        form = await _fetch_login_form(st, "https://t.example/login")
+        self.assertIsNone(form)
+        self.assertEqual(len(st.async_engine.calls), 1)   # no off-host follow
+
+    async def test_cred_list_has_extra_pairs(self):
+        creds = _cred_list()
+        self.assertGreater(len(creds), 60)          # 21 COMMON + 40 EXTRA
+        self.assertIn(("dinas", "dinas"), creds)
+        self.assertIn(("admin", "admin123"), creds)  # from COMMON_CREDS
+
+    async def test_phase_bruteforce_dispatches_smart_brute(self):
+        st = self._state()
+        with patch("runners.poison.flood._run_ffuf",
+                   new=AsyncMock(return_value=[])), \
+                patch("runners.poison.flood._brute_login_form",
+                      new=AsyncMock()) as brute:
+            await phase_bruteforce(st)
+        brute.assert_called_once_with(st, "https://t.example/login")
+
+
+class TestP3Gating(unittest.IsolatedAsyncioTestCase):
+    """Paket 3 (bedah 2026-10-14): uncap ffuf, CDN gating, budget warning,
+    Phase 0 early-exit."""
+
+    @staticmethod
+    def _state(**kw):
+        return PoisonState(
+            target="example.com", seed_url="https://example.com",
+            services=[{"url": "https://example.com"}], subs=[],
+            scan_urls=["https://example.com/"], scope_guard=None,
+            session_manager=MagicMock(), async_engine=MagicMock(),
+            is_turbo=False, **kw)
+
+    def test_ffuf_timeout_new_cap(self):
+        st = self._state()
+        st.max_duration = 500
+        st.start_time = time.time()          # time_left ~500 -> capped 120
+        self.assertEqual(_ffuf_timeout(st), 120)
+        st.start_time = time.time() - 440    # time_left ~60 (epsilon below)
+        self.assertIn(_ffuf_timeout(st), (59, 60))
+        st.start_time = time.time() - 497    # time_left ~3 (epsilon below)
+        self.assertIn(_ffuf_timeout(st), (2, 3))
+
+    def test_edge_helper_case_insensitive(self):
+        st = self._state()
+        st.target_wafs = {"CloudFlare"}
+        self.assertTrue(_edge_shields_origin(st))
+        st.target_wafs = {"nginx", "headers"}
+        self.assertFalse(_edge_shields_origin(st))
+        st.target_wafs = set()
+        self.assertFalse(_edge_shields_origin(st))
+
+    async def test_exhaust_skipped_on_cdn(self):
+        from core.policy import ScanPolicy
+        p = ScanPolicy("example.com", max_requests=5000, max_concurrency=50)
+        st = self._state(policy=p)
+        st.target_wafs = {"cloudflare"}
+        with patch("modules.web.server_side.connection_exhaust"
+                   ".ConnectionExhaust.run",
+                   new=AsyncMock(return_value={})) as run_mock:
+            await phase_connection_exhaust(st)
+        run_mock.assert_not_called()
+        self.assertEqual(p.requests_sent, 0)   # no 750-socket debit either
+
+    async def test_smuggling_skipped_on_cdn(self):
+        st = self._state()
+        st.target_wafs = {"Akamai"}
+        with patch("modules.web.server_side.smuggling.scan_smuggling",
+                   new=AsyncMock(return_value=[])) as sm:
+            await phase_smuggling(st)
+        sm.assert_not_called()
+
+    async def test_exhaust_still_runs_without_cdn(self):
+        st = self._state()
+        st.target_wafs = set()
+        with patch("modules.web.server_side.connection_exhaust"
+                   ".ConnectionExhaust.run",
+                   new=AsyncMock(return_value={
+                       "total_time": 1.0,
+                       "slowloris": {"attempted": 0, "opened": 0, "refused": 0,
+                                     "timeouts": 0, "errors": 0},
+                       "pool_flood": {"attempted": 0, "completed": 0, "refused": 0,
+                                      "timeouts": 0, "errors": 0},
+                       "chunked_bomb": {"attempted": 0, "opened": 0, "refused": 0,
+                                        "timeouts": 0, "errors": 0},
+                   })) as run_mock:
+            await phase_connection_exhaust(st)
+        run_mock.assert_called_once()
+
+    def test_budget_warning_threshold(self):
+        from core.policy import ScanPolicy
+        p = ScanPolicy("example.com", max_requests=100, max_concurrency=10)
+        st = self._state(policy=p)
+        self.assertIsNone(_budget_warning(st))          # fresh budget: silent
+        p.charge(85, reason="test")
+        msg = _budget_warning(st)
+        self.assertIsNotNone(msg)
+        self.assertIn("Budget running low", msg)
+        self.assertIn("15/100", msg)
+
+    async def test_phase0_skipped_without_waf(self):
+        import runners.poison.orchestrator as orch
+        engine = MagicMock()
+
+        async def fake_loop(state):
+            pass
+
+        pipe = AsyncMock(return_value={})
+        with patch.object(orch, "WordlistProvider") as WProv, \
+                patch.object(orch, "_adaptive_wave_loop", new=fake_loop), \
+                patch("modules.waf.bypass_engine.waf_bypass_pipeline",
+                      new=pipe):
+            WProv.return_value._local = True
+            await run_poison_assault(
+                "example.com", "https://example.com",
+                [], [], ["https://example.com/"], None,
+                MagicMock(), engine, max_duration=2)
+        pipe.assert_not_called()
+
+    async def test_phase0_runs_with_waf(self):
+        import runners.poison.orchestrator as orch
+        engine = MagicMock()
+
+        async def fake_loop(state):
+            pass
+
+        pipe = AsyncMock(return_value={})
+        with patch.object(orch, "WordlistProvider") as WProv, \
+                patch.object(orch, "_adaptive_wave_loop", new=fake_loop), \
+                patch("modules.waf.bypass_engine.waf_bypass_pipeline",
+                      new=pipe), \
+                patch("modules.waf.origin_hunter.hunt_origin",
+                      new=AsyncMock(return_value=None)):
+            WProv.return_value._local = True
+            await run_poison_assault(
+                "example.com", "https://example.com",
+                [{"url": "https://example.com", "waf": ["cloudflare"]}],
+                [], ["https://example.com/"], None,
+                MagicMock(), engine, max_duration=2)
+        pipe.assert_called_once()
+
+
+class TestP4Magazine(unittest.IsolatedAsyncioTestCase):
+    """Paket 4 (bedah 2026-10-14): backup exts first, payload rotation."""
+
+    @staticmethod
+    def _state():
+        return PoisonState(
+            target="t.example", seed_url="https://t.example",
+            services=[{"url": "https://t.example"}], subs=[],
+            scan_urls=["https://t.example/"], scope_guard=None,
+            session_manager=MagicMock(), async_engine=MagicMock(),
+            is_turbo=False)
+
+    def test_rot_slice_rotation_and_wrap(self):
+        pl = [f"p{i}" for i in range(8)]
+        self.assertEqual(_rot_slice(pl, 1), ["p0", "p1", "p2"])
+        self.assertEqual(_rot_slice(pl, 2), ["p3", "p4", "p5"])
+        self.assertEqual(_rot_slice(pl, 3), ["p6", "p7", "p0"])   # wraps
+        self.assertEqual(_rot_slice([], 1), [])
+
+    def test_rot_slice_covers_full_list_over_waves(self):
+        pl = [f"p{i}" for i in range(10)]
+        seen = set()
+        for wave in range(1, 5):     # off 0,3,6,9 -> full coverage
+            seen.update(_rot_slice(pl, wave))
+        self.assertEqual(seen, set(pl))
+
+    async def test_ext_pass_backup_exts_first_capped(self):
+        import modules.wordlists as wl
+        st = self._state()
+        with patch.object(wl.PROVIDER, "get_extension_wordlist",
+                          return_value=[".jpg", ".png"]), \
+                patch("runners.poison.flood._run_ffuf",
+                      new=AsyncMock(return_value=[])) as ffuf:
+            await phase_bruteforce(st)
+        exts_used = [c.args[2] for c in ffuf.call_args_list if c.args[2]]
+        self.assertEqual(exts_used[:3], ["~", ".bak", ".old"])
+        self.assertEqual(exts_used[-2:], [".jpg", ".png"])
+        self.assertEqual(len(exts_used),
+                         min(EXT_PASS_MAX, len(_BACKUP_EXTS) + 2))
+
+    async def test_payload_flood_rotates_by_wave(self):
+        import modules.scanners.scanner as scanner_mod
+        st = self._state()
+        st.wave = 2      # rot offset = 3 -> payloads pl3,pl4,pl5
+        calls = []
+
+        async def send(url, **kw):
+            calls.append(url)
+            return {"status": 200, "body": "", "headers": {}, "waf": [],
+                    "time": 0.1}
+        st.async_engine = MagicMock()
+        st.async_engine.ahttp_send = send
+        gen = lambda ptype, bypass=False: [f"pl{i}" for i in range(10)]
+        with patch.object(scanner_mod.SmartPayloadGenerator, "generate",
+                          staticmethod(gen)):
+            await phase_payload_flood(st)
+        joined = " ".join(calls)
+        self.assertIn("pl3", joined)
+        self.assertIn("pl5", joined)
+        self.assertNotIn("pl0", joined)   # wave 1 slice must not appear
+
+
+class TestIntegratedPipeline(unittest.IsolatedAsyncioTestCase):
+    """Compile check (Paket 1+2 dalam satu panggilan phase_bruteforce)."""
+
+    async def test_bruteforce_reports_files_and_creds_together(self):
+        from urllib.parse import parse_qs
+
+        FORM = ("<form action=\"/do_login\" method=\"post\">"
+                "<input type=\"text\" name=\"user\">"
+                "<input type=\"password\" name=\"pass\"></form>")
+
+        async def handler(url, method="GET", headers=None, data=None, **kw):
+            if "git" in url:
+                return {"status": 200, "body": "ref: refs/heads/main\n",
+                        "headers": {}, "waf": [], "time": 0.1}
+            if url.endswith("/login"):
+                return {"status": 200, "body": FORM, "headers": {},
+                        "waf": [], "time": 0.1}
+            if method == "POST":
+                f = parse_qs(data or "")
+                if f.get("user") == ["admin"] and f.get("pass") == ["admin123"]:
+                    return {"status": 302, "body": "",
+                            "headers": {"Location": "/dashboard"},
+                            "waf": [], "time": 0.1}
+                return {"status": 200, "body": "invalid",
+                        "headers": {}, "waf": [], "time": 0.1}
+            return {"status": 200, "body": "", "headers": {}, "waf": [],
+                    "time": 0.1}
+
+        st = PoisonState(
+            target="t.example", seed_url="https://t.example",
+            services=[{"url": "https://t.example"}], subs=[],
+            scan_urls=["https://t.example/login"], scope_guard=None,
+            session_manager=MagicMock(), async_engine=MagicMock(),
+            is_turbo=False)
+        st.async_engine.ahttp_send = handler
+        with patch("runners.poison.flood._run_ffuf",
+                   new=AsyncMock(return_value=["https://t.example/.git/HEAD"])):
+            await phase_bruteforce(st)
+        types = {f["type"] for f in st.findings}
+        self.assertIn("git_exposure", types)          # Paket 1
+        self.assertIn("weak_credentials", types)      # Paket 2
+        creds = [f for f in st.findings
+                 if f["type"] == "weak_credentials"][0]
+        self.assertEqual(creds["confidence"], "confirmed")
 
 
 if __name__ == "__main__":
