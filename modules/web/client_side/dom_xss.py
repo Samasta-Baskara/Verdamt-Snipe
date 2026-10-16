@@ -3,14 +3,14 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import re
 import asyncio
-from typing import List, Dict, Set, Tuple, Optional
+from typing import List, Dict, Tuple, Optional
 try:
     from playwright.async_api import async_playwright
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
-from core.ui import ph, i, p, w, s, draw_table, Spinner, G, Y, R, N, GY, W, C, B
+from core.ui import ph, i, p, w, s, draw_table, Spinner, G, Y, R, N, GY, W, C
 
 # DOM XSS STATIC TAINT ANALYSIS
 

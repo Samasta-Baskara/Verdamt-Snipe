@@ -1,4 +1,3 @@
-import asyncio
 from typing import List, Dict, Any
 from urllib.parse import urlparse
 
@@ -8,7 +7,7 @@ try:
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
-from core.ui import ph, i, p, s, w, R, G, Y, N, W, C, GY
+from core.ui import ph, s, w, N, C
 
 
 class ProtoPollutionVerifier:

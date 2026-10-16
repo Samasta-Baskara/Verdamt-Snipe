@@ -8,10 +8,8 @@ Usage:
 
 import os
 import sys
-import json
 import socket
 import subprocess
-from typing import Dict, List
 
 
 def check_ip(proxy: str = None) -> dict:

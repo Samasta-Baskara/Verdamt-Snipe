@@ -1,7 +1,7 @@
 import json
 import re
 import urllib.parse
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any
 
 class OpenAPIParser:
     """

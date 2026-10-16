@@ -1,8 +1,8 @@
 import asyncio
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
-from core.ui import ph, i, p, w, s, Spinner, G, Y, R, N, GY, W, C
+from core.ui import ph, p, w, s, Spinner, G, N, C
 from modules.scanners import AsyncVulnEngine
 from runners.shared import normalize_urls, validate_recon_urls
 

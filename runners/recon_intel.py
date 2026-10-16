@@ -5,7 +5,6 @@ from core.external_tools import run_gau, run_waybackurls
 from core.ui import Spinner, i, ph
 from modules.recon.dorking import GoogleDorker
 from modules.recon.jsscanner import JSScanner
-from modules.recon import WaybackCollector
 from modules.scanners import AsyncVulnEngine
 from modules.extras.takeover import TakeoverChecker
 from runners.shared import (

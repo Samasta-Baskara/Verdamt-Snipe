@@ -1,8 +1,7 @@
 """Blind SQLi Data Extraction via Binary Search with DBMS Auto-detection."""
 
-import asyncio
 import time
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Callable
 
 
 class BlindSQLiExtractor:

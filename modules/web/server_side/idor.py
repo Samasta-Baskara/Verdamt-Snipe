@@ -3,7 +3,7 @@
 
 import re
 import asyncio
-from typing import Dict, List, Optional
+from typing import Dict, List
 from core.async_network import AsyncNetworkEngine
 from core.ui import w
 

@@ -10,11 +10,10 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from typing import Dict, List, Optional, Tuple
 
 from core.policy import ScanPolicy
-from core.ui import ph, i, p, w, s, Spinner, G, Y, R, C, M, W, GY, N, B, draw_table
+from core.ui import ph, i, p, w, Spinner, G, Y, R, C, M, W, GY, N, draw_table
 
 # TOOL DISCOVERY
 

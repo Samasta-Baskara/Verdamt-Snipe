@@ -7,7 +7,7 @@ sends the domain as SNI while routing traffic to the origin IP.
 import os
 import subprocess
 import tempfile
-from typing import Dict, Optional
+from typing import Dict
 from urllib.parse import urlparse
 
 

@@ -13,8 +13,7 @@ Usage:
 import json
 import socket
 import subprocess
-import asyncio
-from typing import List, Optional
+from typing import List
 from urllib.parse import quote
 
 # DoH providers (order = priority)

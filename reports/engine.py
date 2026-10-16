@@ -1,16 +1,12 @@
 import html
-import hashlib
 import math
 import os
 import re
 import shlex
-import tempfile
 import uuid
 from datetime import datetime
 from typing import List, Dict
-from urllib.parse import urlencode, urlparse, urlunsplit, parse_qsl, quote
 
-from core.ui import ph, G, Y, R, C, W, B, N, GY
 
 OUTPUT_DIR = "outputs"
 

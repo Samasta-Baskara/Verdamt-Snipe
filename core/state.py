@@ -1,5 +1,5 @@
 import threading
-from typing import Dict, List, Any
+from typing import Dict, Any
 from urllib.parse import urlparse
 
 # Multi-part public suffixes for the eTLD+1 sibling heuristic in

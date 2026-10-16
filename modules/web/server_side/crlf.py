@@ -1,7 +1,6 @@
 """CRLF Injection + Log Poisoning."""
 
-from typing import Dict, List, Optional
-from urllib.parse import quote
+from typing import Dict, List
 
 from core.async_network import AsyncNetworkEngine
 

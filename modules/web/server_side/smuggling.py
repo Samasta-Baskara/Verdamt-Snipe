@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from core.async_network import AsyncNetworkEngine
-from core.ui import i, s, w, ph, R, G, C, W, N, Y
+from core.ui import i, s, w, ph, R, C, W, N, Y
 
 
 SMUGGLE_SIGNATURES = {

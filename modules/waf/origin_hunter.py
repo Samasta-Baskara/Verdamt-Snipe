@@ -34,16 +34,15 @@ import asyncio
 import hashlib
 import ipaddress
 import json
-import os
 import re
 import socket
 import ssl
 import subprocess
 import time
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from core.ui import ph, i, s, w, p, Spinner, G, R, Y, C, W, N, B, M, GY, D, draw_table
+from core.ui import ph, i, s, w, p, Spinner, G, Y, C, N, B, draw_table
 
 
 # CONSTANTS — WAF/CDN CIDR Ranges

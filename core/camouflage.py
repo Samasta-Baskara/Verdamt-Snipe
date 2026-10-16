@@ -15,8 +15,7 @@ Usage:
 
 import asyncio
 import random
-import time
-from typing import Dict, List, Optional
+from typing import Dict, List
 from urllib.parse import urlparse, urljoin
 
 

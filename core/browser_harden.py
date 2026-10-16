@@ -16,7 +16,6 @@ Usage:
 
 import os
 import sys
-import json
 import subprocess
 import platform
 from pathlib import Path

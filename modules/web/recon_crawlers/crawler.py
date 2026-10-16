@@ -1,10 +1,8 @@
-import sys
-import os
 import re
 import asyncio
 from urllib.parse import urljoin, urlparse
-from typing import List, Dict, Set
-from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C
+from typing import Dict
+from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, N, W
 
 class DeepCrawler:
     """Advanced crawler for deeper endpoint discovery and hidden path extraction."""

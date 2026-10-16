@@ -12,8 +12,6 @@ Techniques implemented:
 - Path traversal via encoding layers (double-encode, overlong UTF-8)
 - Header injection / CRLF via folding and obsolete line folding
 """
-import random
-import string
 import copy
 import json as json_lib
 import urllib.parse

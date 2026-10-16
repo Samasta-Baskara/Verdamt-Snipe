@@ -2,13 +2,12 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
-import re
 import concurrent.futures
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import urlencode
 from typing import List, Dict, Set, Optional
 from core.async_network import AsyncNetworkEngine
 from core.network import thttp
-from core.ui import ph, i, p, w, s, draw_table, Spinner, G, Y, R, N, GY, W, C, B
+from core.ui import ph, i, p, w, draw_table, Spinner, G, N, W, B
 
 # EMBEDDED WORDLIST — 500+ high-value params from Arjun/ParamSpider/SecLists
 PARAM_WORDLIST = [

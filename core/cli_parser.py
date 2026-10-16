@@ -9,15 +9,14 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qsl, urlencode
 from pathlib import Path
 
-from core.ui import print_banner, ph, i, w, s, Spinner, G, Y, R, C, W, N, B, M, D, GY, O, ScanDashboard
+from core.ui import print_banner, ph, i, w, s, Spinner, G, R, C, W, N, B, M, D, GY, ScanDashboard
 from core.ui import draw_interactive_menu, draw_help_screen, draw_confirm_bar, _MODES, _IMPERSONATE_OPTS
 from core.network import GhostMode
-from core.scope import ScopeGuard
 from core.policy import ScanPolicy
 from core.state import SessionManager
 from core.async_network import AsyncNetworkEngine
 from core.project import ProjectState, sanitize_filename
-from modules.scanners import VulnVerifier, AsyncVulnEngine
+from modules.scanners import VulnVerifier
 from modules.web.server_side.blind_sqli_extract import BlindSQLiExtractor
 from runners.shared import inject_query_payload, run_katana_phase, run_waf_origin_phase
 from reports.engine import ReportEngine, finding_cvss

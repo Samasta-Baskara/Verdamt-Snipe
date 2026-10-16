@@ -21,12 +21,11 @@ Usage:
 """
 
 import os
-import random
 import time
 import socket
 import asyncio
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.parse import urlparse, unquote
 
 

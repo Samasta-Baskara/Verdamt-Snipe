@@ -11,7 +11,6 @@ import ssl
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from core import proxy_manager as PM
 from core.proxy_manager import open_proxied_connection, resolve_proxy

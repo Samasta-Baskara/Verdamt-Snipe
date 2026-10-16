@@ -4,11 +4,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import re
 import time
 import random
-import concurrent.futures
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, urlparse
 from typing import List, Dict, Set
 from core.network import thttp
-from core.ui import ph, i, p, w, s, draw_table, Spinner, G, Y, R, N, GY, W, C, B
+from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C, B
 
 # GOOGLE DORK TEMPLATES
 

@@ -94,7 +94,6 @@ async def validate_recon_urls(urls, scope_guard, async_engine, session_manager=N
             # Fetch adaptive delay if a global RateLimiter is available
             delay_ms, jitter_ms = 0, 0
             try:
-                from core.ratelimit import RateLimiter as _RL
                 # The global rate_limiter instance is typically set on async_engine
                 _rl = getattr(async_engine, 'rate_limiter', None)
                 if _rl:

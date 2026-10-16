@@ -1,15 +1,11 @@
-import sys
-import os
 import re
 import asyncio
 import ipaddress
-import time
-import random
 from typing import List, Dict, Optional
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit, parse_qsl, urlparse
 from core.audit import EVIDENCE_CAP
 from core.async_network import AsyncNetworkEngine
-from core.ui import B, C, G, N, R, W, Y, i, p, s, w
+from core.ui import C, N, Y, i, s, w
 from modules.auth.bypass import WAFBypass
 from core.network import thttp
 from runners.shared import inject_query_payload

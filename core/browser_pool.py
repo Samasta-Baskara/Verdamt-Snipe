@@ -8,7 +8,7 @@ import asyncio
 from typing import Optional, Dict, Any
 
 try:
-    from playwright.async_api import async_playwright, Playwright, Browser, BrowserContext
+    from playwright.async_api import async_playwright
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False

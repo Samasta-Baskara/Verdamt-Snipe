@@ -8,10 +8,8 @@ import socket
 import concurrent.futures
 from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
-from core.http_client import HTTPClient
-from core.ratelimit import RateLimiter
 from core.network import http_send, thttp
-from core.ui import ph, i, p, s, w, draw_table, Spinner, G, Y, R, M, C, N, GY, W, B
+from core.ui import ph, i, p, s, w, draw_table, Spinner, G, Y, R, M, N, GY, W, B
 
 RECON_THREADS = 10
 _CHECK = "✓"

@@ -5,9 +5,8 @@ import time
 import base64
 import re
 import binascii
-import html
-from urllib.parse import quote, urlencode
-from typing import List, Dict, Tuple
+from urllib.parse import quote
+from typing import List, Dict
 
 class WAFBypass:
     """Complete WAF bypass engine — detection, encoding, header manipulation."""

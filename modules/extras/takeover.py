@@ -1,10 +1,9 @@
 import sys
 import os
-import socket
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import concurrent.futures
 from typing import List, Dict
-from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C, B
+from core.ui import ph, i, p, draw_table, Spinner, Y, R, N, W, B
 
 class TakeoverChecker:
     """Check for dangling CNAMEs and potential subdomain takeovers."""

@@ -2,7 +2,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Set
+from typing import List, Dict
 
 OUTPUT_DIR = "outputs"
 

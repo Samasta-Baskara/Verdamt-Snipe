@@ -1,6 +1,5 @@
-import asyncio
 from typing import List, Dict, Any, Set
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 try:
     from playwright.async_api import async_playwright
@@ -8,7 +7,7 @@ try:
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
-from core.ui import ph, i, p, s, w, R, G, Y, N, W, C, GY
+from core.ui import ph, s, w, N, W
 
 
 class SPACrawler:

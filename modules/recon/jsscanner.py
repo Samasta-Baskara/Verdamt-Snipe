@@ -4,7 +4,7 @@ import re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
 from urllib.parse import urlparse
-from typing import List, Dict, Set, Optional
+from typing import List, Set, Optional
 from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C
 from core.go_bridge import go_bridge
 

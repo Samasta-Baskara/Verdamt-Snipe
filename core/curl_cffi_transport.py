@@ -26,8 +26,6 @@ Usage:
 
 import time
 import random
-from typing import Dict, Optional
-from dataclasses import dataclass
 
 try:
     from curl_cffi.requests import Session, AsyncSession

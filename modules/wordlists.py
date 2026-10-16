@@ -1,16 +1,13 @@
 """
 Wordlist Manager — Auto-detect local wordlists, fallback download from SecLists/Assetnote.
 """
-import asyncio
 import os
 import gzip
-import shutil
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.request import urlopen
 from urllib.error import URLError
 
-from core.ui import i, s, w, p, ph, Spinner, G, R, Y, C, W, N, B
+from core.ui import i, s, w, p, ph, G, R, C, N
 
 
 # Config

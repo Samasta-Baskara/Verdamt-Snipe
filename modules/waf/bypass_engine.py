@@ -22,20 +22,12 @@ Bypass categories:
 """
 
 import asyncio
-import hashlib
-import ipaddress
 import json
-import os
-import random
-import re
-import socket
-import subprocess
-import time
-from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlparse, quote, urlencode
+from typing import Dict, List
+from urllib.parse import quote
 
-from core.ui import ph, i, s, w, p, Spinner, G, R, Y, C, W, N, B, M, GY, D, draw_table
-from modules.waf.origin_hunter import hunt_origin, _is_waf_ip, _resolve, _quick_probe, _curl, _run_subprocess
+from core.ui import ph, i, s, w, Spinner, G, R, Y, C, N, B, draw_table
+from modules.waf.origin_hunter import hunt_origin, _quick_probe, _curl, _run_subprocess
 
 
 # WAF-SPECIFIC BYPASS TECHNIQUES

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, List, Set, Any
+from typing import Dict, Set, Any
 from urllib.parse import urlparse
 
 try:
@@ -14,7 +14,7 @@ except ImportError:
     async_playwright = Request = Response = BrowserContext = Page = _Any
 
 from core.state import SessionManager
-from core.ui import ph, i, p, s, w, R, G, Y, N, W, C, GY
+from core.ui import ph, i, p, s, w, G, Y, N, W, C
 
 class BrowserRecon:
     """

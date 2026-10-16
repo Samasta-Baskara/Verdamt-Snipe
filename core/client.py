@@ -13,15 +13,14 @@ import time
 import uuid
 import zlib
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
-import enum
 import httpx
 from core.audit import AuditLogger
 from core.policy import ScanPolicy
 from core.http_codec import _dechunk
-from core.resilience import AdaptivePacingSystem, CircuitBreaker, CircuitState
+from core.resilience import AdaptivePacingSystem, CircuitBreaker
 
 try:
     import brotli

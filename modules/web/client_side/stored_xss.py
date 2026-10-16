@@ -3,11 +3,11 @@
 
 import asyncio
 import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List
 from urllib.parse import urlparse
 
 from core.async_network import AsyncNetworkEngine
-from core.ui import i, s, w
+from core.ui import w
 
 
 class StoredXSSHunter:

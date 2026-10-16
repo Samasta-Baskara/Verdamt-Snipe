@@ -3,7 +3,6 @@ Plugin Manager — auto-discover & load custom modules from modules/custom/.
 
 Drop any .py file with a class that has:  async def run(self, state) -> List[Dict]
 """
-import asyncio
 import importlib
 import inspect
 import os

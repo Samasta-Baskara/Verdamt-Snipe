@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from modules.recon.tech_detector import TechStackDetector
 from reports.remediation import ContextAwareFixGenerator
-from reports.engine import PoCGenerator, ReportEngine
+from reports.engine import PoCGenerator
 
 
 class TestFrameworkRemediation(unittest.TestCase):

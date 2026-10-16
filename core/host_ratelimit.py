@@ -12,7 +12,7 @@ ber-WAF/auth menghabiskan wall-clock dalam cascade "selalu rate limited".
 import asyncio
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

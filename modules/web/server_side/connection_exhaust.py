@@ -10,10 +10,10 @@ import asyncio
 import ipaddress
 import ssl
 import time
-from typing import Dict, List, Optional
+from typing import Dict
 from urllib.parse import urlparse
 
-from core.ui import ph, i, s, w, p, G, R, Y, C, W, N, B, draw_table
+from core.ui import ph, i, s, w, p, G, R, C, N, B, draw_table
 
 # Internal IP ranges — skip these
 _INTERNAL_RANGES = [

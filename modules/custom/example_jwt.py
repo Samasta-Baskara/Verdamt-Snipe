@@ -9,7 +9,6 @@ Checks JWT tokens found in responses for:
 To use: just drop this file in modules/custom/ — auto-loaded.
 Rename to _example_jwt.py to disable (underscore prefix = skipped).
 """
-import asyncio
 import base64
 import hmac
 import hashlib

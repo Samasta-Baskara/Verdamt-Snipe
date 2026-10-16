@@ -1,4 +1,3 @@
-import asyncio
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
@@ -9,7 +8,7 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 from core.state import SessionManager
-from core.ui import ph, i, p, s, w, R, G, Y, N, W, C, GY, draw_table
+from core.ui import ph, i, s, w, N, W, C, GY
 
 
 class CSRFVerifier:
