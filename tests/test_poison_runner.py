@@ -35,6 +35,19 @@ from runners.poison import (
 )
 
 
+def setUpModule():
+    """Hermetic CI: never let orchestrator tests hit the network.
+
+    auto_setup_wordlists() downloads SecLists/Assetnote files on machines
+    without ~/.wordlists (fresh CI runners) — 403/404 noise, extra network
+    latency, zero test signal. Patch the downloader off for this module;
+    the embedded fallback lists keep the runs deterministic.
+    """
+    patcher = patch("modules.wordlists.download_wordlist", return_value=None)
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
 class TestPoisonRunnerState(unittest.TestCase):
     def _create_state(self):
         return PoisonState(

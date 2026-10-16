@@ -14,8 +14,12 @@ Also: ScanPolicy budget denial used to be silent (status=0 read as
 "no response" downstream) -> one-shot loud warning, asserted here.
 """
 import asyncio
+import ast
 import io
 import pathlib
+import re
+import sys
+import tomllib
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -50,6 +54,89 @@ class TestStaticUndefinedNames(unittest.TestCase):
             "pyflakes undefined names (runtime NameError waiting to happen):\n"
             + "\n".join(undefined))
         self.assertNotIn("ambiguous variable", out.getvalue())
+
+
+class TestDeclaredDependencies(unittest.TestCase):
+    """Dependency-parity gate: source imports must be declared.
+
+    Regression (CI 2026-10-16, 6F+4E on the poison suite): flood.py
+    imported lxml inside try/except, requirements.txt never declared it —
+    a fresh CI env silently lost the whole login-form brute (form fetch
+    returned None). requirements.txt AND pyproject.toml must cover every
+    third-party top-level import under core/modules/reports/runners.
+    """
+
+    # import name -> declared distribution name (case-insensitive)
+    ALIASES = {
+        "socks": "pysocks",
+        "jwt": "pyjwt",
+        "interactsh": "python-interactsh",
+    }
+    LOCAL = {"core", "modules", "reports", "runners"}
+
+    @staticmethod
+    def _norm(name: str) -> str:
+        return re.sub(r"[-_.]+", "", name).lower()
+
+    @staticmethod
+    def _spec_name(spec: str) -> str:
+        """'pkg[extra]==1.0' / 'pkg @ git+url' -> normalized 'pkg'."""
+        spec = spec.split(" @ ", 1)[0].split("[", 1)[0]
+        spec = re.split(r"[=<>!~; ]", spec, 1)[0]
+        return TestDeclaredDependencies._norm(spec)
+
+    def _imported_top_level(self) -> dict:
+        files = [ROOT / "verd.py"]
+        for d in ("runners", "modules", "core", "reports"):
+            files.extend(p for p in (ROOT / d).rglob("*.py")
+                         if "__pycache__" not in str(p))
+        found: dict = {}
+        for f in files:
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom) and not node.level:
+                    names = [node.module or ""]
+                else:
+                    continue
+                for n in names:
+                    top = n.split(".")[0]
+                    if (not top or top in sys.stdlib_module_names
+                            or top in self.LOCAL):
+                        continue
+                    found.setdefault(top, set()).add(
+                        str(f.relative_to(ROOT)))
+        return found
+
+    def _declared_in_requirements(self) -> set:
+        names = set()
+        for line in (ROOT / "requirements.txt").read_text(
+                encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                names.add(self._spec_name(line))
+        return names
+
+    def test_every_third_party_import_is_declared(self):
+        declared = self._declared_in_requirements()
+        missing = {}
+        for mod, files in self._imported_top_level().items():
+            dist = self.ALIASES.get(mod, mod)
+            if self._norm(dist) not in declared:
+                missing[mod] = sorted(files)
+        self.assertEqual(
+            missing, {},
+            "source imports PyPI packages that requirements.txt does not "
+            f"declare (a fresh CI env will silently lose features): {missing}")
+
+    def test_pyproject_dependencies_match_requirements(self):
+        data = tomllib.loads((ROOT / "pyproject.toml").read_text(
+            encoding="utf-8"))
+        py = {self._spec_name(d) for d in data["project"]["dependencies"]}
+        self.assertEqual(
+            py, self._declared_in_requirements(),
+            "requirements.txt vs pyproject.toml dependency drift")
 
 
 class TestPayloadGeneratorBypassSmoke(unittest.TestCase):

@@ -366,6 +366,24 @@ def _cred_list() -> List[Tuple[str, str]]:
     return creds
 
 
+_LXML_WARNED = False
+
+
+def _warn_missing_lxml() -> None:
+    """One-shot loud warning when the lxml parser is unavailable.
+
+    The import used to sit inside `except Exception: return None` — a fresh
+    env without lxml (requirements.txt drift, caught by CI) silently lost
+    the whole login-form brute: form fetch returned None, zero findings,
+    zero words. Missing dependencies must be loud, not silent.
+    """
+    global _LXML_WARNED
+    if _LXML_WARNED:
+        return
+    _LXML_WARNED = True
+    w("login-form brute DISABLED — lxml is not installed (pip install lxml)")
+
+
 async def _fetch_login_form(state, url: str) -> Optional[dict]:
     """Parse the real login form: user/pass fields, hidden inputs, action."""
     r = await state.async_engine.ahttp_send(
@@ -393,6 +411,10 @@ async def _fetch_login_form(state, url: str) -> Optional[dict]:
     body = r.get("body") or ""
     try:
         from lxml import html as lxml_html
+    except ImportError:
+        _warn_missing_lxml()
+        return None
+    try:
         doc = lxml_html.fromstring(body)
     except Exception:
         return None

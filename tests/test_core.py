@@ -15,6 +15,18 @@ from core.ui import _MODES
 from verd import parse_mode, parse_scan_args, seed_session_headers
 
 
+def setUpModule():
+    """Hermetic CI: never let the poison orchestrator hit the network.
+
+    run_poison_assault() -> auto_setup_wordlists() downloads SecLists/
+    Assetnote files on machines without ~/.wordlists (fresh CI runners).
+    Patch the downloader off so unit tests stay offline-deterministic.
+    """
+    patcher = patch("modules.wordlists.download_wordlist", return_value=None)
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
+
+
 class FakePoisonWordlistProvider:
     def __init__(self):
         self._local = {"dummy": ["dummy"]}

@@ -101,21 +101,22 @@ async def run_app_analysis(
             return {"endpoints": []}
 
     def _has_stage(keyword: str) -> bool:
-        """True bila pipeline dashboard punya stage dengan keyword tsb.
+        """True bila fase boleh dikirim ke dashboard.
 
-        Dipakai untuk fase kondisional: di mode FULL tidak ada stage
-        "Deep Crawl" terpisah (menyatu dengan "App & Param Discovery"),
-        jadi ph DEEP CRAWL tidak dikirim — kalau dikirim, mapping crawl
-        justru menyalakan ulang stage "Katana Crawl" yang sudah lewat.
+        Pipe mode (dashborad tidak aktif) selalu boleh — tak ada pipeline
+        yang bisa salah nyala. Di dashboard, fase DEEP CRAWL hanya dikirim
+        bila stage-nya benar-benar ada: di mode FULL stage itu tidak ada
+        (menyatu dengan "App & Param Discovery"), dan kalau dikirim, mapping
+        crawl justru menyalakan ulang stage "Katana Crawl" yang sudah lewat.
         """
         try:
             from core.ui import ScanDashboard
             if not ScanDashboard.active():
-                return False
+                return True
             return any(keyword in st["name"].lower()
                        for st in ScanDashboard.get().pipeline)
         except Exception:
-            return False
+            return True
 
     if _has_stage("deep crawl"):
         ph("DEEP CRAWL: Mapping application endpoints (DeepCrawler + Browser)")
