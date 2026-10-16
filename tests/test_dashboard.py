@@ -12,6 +12,8 @@ tests render `_build_layout()` at several terminal geometries and assert:
   * Tooling / Metrics shows only values derived from real scan state;
   * the metallic-gold SCALING strip is present.
 """
+import io
+import sys
 import time
 import unittest
 
@@ -196,6 +198,121 @@ class TestRecentActivityColours(unittest.TestCase):
         self.assertTrue(any("brand new event" in ln for ln in feed(dash)))
 
 
+class TestActivityScrollbar(unittest.TestCase):
+    """The feed scrolls inside its panel and carries a position thumb."""
+
+    def tearDown(self):
+        ScanDashboard._instance = None
+
+    @staticmethod
+    def _feed(dash, n):
+        with dash._lock:
+            for i in range(n):
+                dash.recent_events.append((f"event {i:03d}", "cyan",
+                                           time.time(), "info"))
+                dash._event_seq += 1
+
+    @staticmethod
+    def _activity(dash, width=50, height=20):
+        lines, _ = dash._build_activity(width, height,
+                                        list(dash.recent_events),
+                                        dash._event_seq, dash._view_anchor)
+        return [ln.plain for ln in lines]
+
+    def test_no_bar_when_history_fits(self):
+        dash = _build()
+        self._feed(dash, 3)
+        rows = self._activity(dash)
+        text = "\n".join(rows)
+        self.assertNotIn("█", text)
+        self.assertNotIn("░", text)
+        for line in rows:
+            self.assertEqual(cell_len(line), 50)
+
+    def test_thumb_pinned_to_tail_while_following(self):
+        dash = _build()
+        self._feed(dash, 150)
+        rows = self._activity(dash, 50, 20)
+        thumb = [i for i, ln in enumerate(rows) if "█" in ln]
+        self.assertTrue(thumb, "no scrollbar thumb rendered")
+        self.assertEqual(max(thumb), 19)          # bottom of the bar
+        for i, ln in enumerate(rows):
+            self.assertIn("█" if i in thumb else "░", ln)
+            self.assertEqual(cell_len(ln), 50)
+
+    def test_scrolling_back_moves_thumb_to_the_top(self):
+        dash = _build()
+        self._feed(dash, 150)
+        self._activity(dash, 50, 20)              # first paint registers window
+        dash.scroll_events(-130)
+        rows = self._activity(dash, 50, 20)
+        thumb = [i for i, ln in enumerate(rows) if "█" in ln]
+        self.assertTrue(thumb)
+        self.assertEqual(min(thumb), 0)           # top of the bar
+
+    def test_no_bar_when_anchor_set_but_history_fully_visible(self):
+        dash = _build()
+        self._feed(dash, 3)
+        dash.scroll_events(-1)
+        text = "\n".join(self._activity(dash))
+        self.assertNotIn("█", text)
+        self.assertNotIn("░", text)
+
+    def test_scrolled_badge_and_full_width_geometry(self):
+        dash = _build()
+        self._feed(dash, 150)
+        dash.scroll_events(-20)
+        lines = _plain(_segments(dash, 120, 40))
+        text = "\n".join(lines)
+        self.assertIn("SCROLLED · End", text)
+        self.assertIn("█", text)
+        self.assertEqual(len(lines), 40)
+        for ln in lines:
+            self.assertEqual(cell_len(ln), 120)
+
+
+class TestFeedScrollKeys(unittest.TestCase):
+    """Keyboard and mouse-wheel bindings drive the feed cursor."""
+
+    def tearDown(self):
+        ScanDashboard._instance = None
+
+    def _scrolled_dash(self):
+        dash = _build()
+        with dash._lock:
+            for i in range(120):
+                dash.recent_events.append((f"e{i}", "cyan", time.time(), "info"))
+                dash._event_seq += 1
+        _segments(dash, 120, 40)                  # paint once → window known
+        return dash
+
+    def test_wheel_steps_are_small_and_reversible(self):
+        dash = self._scrolled_dash()
+        top = dash._render_top_seq
+        dash._handle_keys("\x1b[<64;10;5M")       # wheel up
+        self.assertEqual(dash._view_anchor, top - tables._WHEEL_STEP)
+        dash._handle_keys("\x1b[<65;10;5M")       # wheel down
+        self.assertEqual(dash._view_anchor, top)
+
+    def test_shift_wheel_still_scrolls(self):
+        dash = self._scrolled_dash()
+        top = dash._render_top_seq
+        dash._handle_keys("\x1b[<68;10;5M")       # shift + wheel up
+        self.assertEqual(dash._view_anchor, top - tables._WHEEL_STEP)
+
+    def test_application_mode_arrows_and_end(self):
+        dash = self._scrolled_dash()
+        top = dash._render_top_seq
+        dash._handle_keys("\x1bOA")               # app-mode ↑
+        self.assertEqual(dash._view_anchor, top - tables._SCROLL_STEP)
+        dash._handle_keys("\x1b[4~")              # End → auto-follow
+        self.assertIsNone(dash._view_anchor)
+        dash._handle_keys("\x1bOB")               # app-mode ↓ at tail is a no-op
+        self.assertIsNone(dash._view_anchor)
+        dash._handle_keys("\x1b[6~")              # PageDown at tail is a no-op
+        self.assertIsNone(dash._view_anchor)
+
+
 class TestPipeline(unittest.TestCase):
     def tearDown(self):
         ScanDashboard._instance = None
@@ -324,6 +441,110 @@ class TestNoLiveSideEffects(unittest.TestCase):
                 dash.recent_events.append((f"e{i}", "cyan", time.time(), "info"))
                 dash._event_seq += 1
         self.assertEqual(len(dash.recent_events), 400)
+
+
+class TestFeedProxy(unittest.TestCase):
+    """Stray stdout/stderr lines stay inside the dashboard while active."""
+
+    def test_complete_lines_are_emitted_incrementally(self):
+        emitted = []
+        proxy = tables._FeedProxy(io.StringIO(), emitted.append)
+        proxy.write("hello ")
+        self.assertEqual(emitted, [])
+        proxy.write("world\nnext")
+        self.assertEqual(emitted, ["hello world"])
+        proxy.flush()
+        self.assertEqual(emitted, ["hello world", "next"])
+
+    def test_blank_lines_and_carriage_returns_are_cleaned(self):
+        emitted = []
+        proxy = tables._FeedProxy(io.StringIO(), emitted.append)
+        proxy.write("\n   \nprogress 1\rprogress 2\n")
+        self.assertEqual(emitted, ["progress 2"])
+
+    def test_rich_markup_is_rendered_to_plain_text(self):
+        emitted = []
+        proxy = tables._FeedProxy(io.StringIO(), emitted.append)
+        proxy.write("  [bold green]✔[/] [cyan]200[/] [white]https://x[/]\n")
+        self.assertEqual(emitted, ["✔ 200 https://x"])
+        proxy.write("[INFO] stays literal\n")
+        self.assertEqual(emitted[-1], "[INFO] stays literal")
+        proxy.write("[/] orphan close stays raw\n")
+        self.assertEqual(emitted[-1], "[/] orphan close stays raw")
+
+    def test_console_unwraps_to_the_real_stream(self):
+        wrapped = io.StringIO()
+        proxy = tables._FeedProxy(wrapped, [].append)
+        self.assertIs(proxy.rich_proxied_file, wrapped)
+
+    def test_installs_and_restores_sys_streams(self):
+        dash = _build()
+        real_out, real_err = sys.stdout, sys.stderr
+        dash._install_feed_proxy()
+        try:
+            self.assertIsNot(sys.stdout, real_out)
+            self.assertIs(sys.stderr.rich_proxied_file, real_err)
+            print("routed line")
+            sys.stderr.write("routed warning\n")
+        finally:
+            dash._uninstall_feed_proxy()
+        self.assertIs(sys.stdout, real_out)
+        self.assertIs(sys.stderr, real_err)
+        kinds = [ev[3] for ev in dash.recent_events]
+        self.assertIn("info", kinds)
+        self.assertIn("warn", kinds)
+
+
+class TestDrawTableRouting(unittest.TestCase):
+    """draw_table must never print above a live dashboard canvas."""
+
+    def tearDown(self):
+        ScanDashboard._instance = None
+
+    def _capture(self, fn):
+        captured = io.StringIO()
+        original = tables.console
+        tables.console = Console(file=captured, width=100, force_terminal=False)
+        try:
+            fn()
+        finally:
+            tables.console = original
+        return captured.getvalue()
+
+    def test_active_dashboard_streams_rows_into_feed(self):
+        dash = _build()
+        dash._active = True
+        try:
+            out = self._capture(lambda: tables.draw_table(
+                ["CODE", "URL"],
+                [["200", "https://a"], ["403", "https://b"]],
+                title="Live Services"))
+        finally:
+            dash._active = False
+        self.assertEqual(out, "")
+        joined = "\n".join(ev[0] for ev in dash.recent_events)
+        self.assertIn("Live Services", joined)
+        self.assertIn("200  https://a", joined)
+        self.assertIn("403  https://b", joined)
+
+    def test_inactive_dashboard_keeps_the_markup_table(self):
+        dash = _build()
+        out = self._capture(lambda: tables.draw_table(
+            ["CODE", "URL"], [["200", "https://a"]], title="Live Services"))
+        self.assertIn("Live Services", out)
+        self.assertIn("https://a", out)
+        self.assertEqual(len(dash.recent_events), 0)
+
+    def test_row_cap_keeps_the_feed_sane(self):
+        dash = _build()
+        dash._active = True
+        try:
+            self._capture(lambda: tables.draw_table(
+                ["N"], [[str(i)] for i in range(30)], title="Big"))
+        finally:
+            dash._active = False
+        joined = "\n".join(ev[0] for ev in dash.recent_events)
+        self.assertIn("… 10 more rows", joined)
 
 
 if __name__ == "__main__":
@@ -467,14 +688,14 @@ class TestScrollHint(unittest.TestCase):
         for width in (200, 150, 116, 96, 70, 50, 46, 40):
             last = _plain(_segments(_build(), width, max(20, width // 3)))[-1]
             self.assertIn("SCALING", last, f"no SCALING at width {width}")
-            self.assertIn("↑↓ scroll", last, f"no scroll hint at width {width}")
+            self.assertIn("↑↓/wheel", last, f"no scroll hint at width {width}")
             self.assertTrue(last.rstrip().endswith("●"))
 
     def test_hint_survives_without_a_tty_listener(self):
         dash = _build()
         self.assertFalse(dash.scroll_enabled)   # harness never starts the listener
         last = _plain(_segments(dash, 150, 50))[-1]
-        self.assertIn("↑↓ scroll · End follow", last)
+        self.assertIn("↑↓/wheel scroll · End follow", last)
 
     def test_scrolling_row_is_full_width(self):
         from rich.cells import cell_len as _cl

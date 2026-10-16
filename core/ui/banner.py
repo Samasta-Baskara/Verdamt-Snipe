@@ -205,6 +205,11 @@ _HELP_GROUPS = [
         ("--passive", "Passive methods and tools only"),
         ("-r, --resume [path]", "Resume from a saved state file"),
     ]),
+    ("LIVE DASHBOARD", [
+        ("↑ / ↓ · mouse wheel", "Scroll the Recent Activity feed"),
+        ("PgUp / PgDn", "Jump a page through the feed history"),
+        ("End", "Snap back to live follow mode"),
+    ]),
     ("PROXY & IMPERSONATION", [
         ("-p, --proxy <url>", "Proxy URL, e.g. socks5://1.2.3.4:1080"),
         ("--proxy-list <path>", "Load a proxy list from a file"),

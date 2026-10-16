@@ -1,4 +1,5 @@
 """tables — verbatim split from ui.py (no logic changes)."""
+import io
 import os
 import sys
 import time
@@ -34,6 +35,10 @@ from .styles import (D_BG, D_PANEL, D_ELEV, D_EMERALD, D_TEAL, D_GOLD, D_GOLD_SO
 
 _HISTORY_LIMIT = 400
 _SCROLL_STEP = 4
+_WHEEL_STEP = 2
+_SCROLLBAR_W = 2           # 1 gutter cell + 1 bar cell at the feed's right edge
+_MOUSE_ON = "\x1b[?1000h\x1b[?1006h"
+_MOUSE_OFF = "\x1b[?1000l\x1b[?1006l"
 
 
 def _blank(width: int, background: str = D_BG) -> Text:
@@ -625,6 +630,90 @@ def _bar_meter(label: str, value: str, fraction: float, colour: str,
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+class _FeedProxy(io.TextIOBase):
+    """stdout/stderr shim used while the dashboard owns the alternate screen.
+
+    Rich's own ``Live`` redirect funnels plain ``print()`` above the live
+    frame, which scrolls the canvas and lets stray lines escape the panel.
+    This proxy instead turns every complete line into a dashboard feed event
+    so all output stays inside the dashboard.  ``rich_proxied_file`` keeps
+    ``Console.print`` (tables, panels) pointed at the real terminal.
+    """
+
+    def __init__(self, wrapped, emit):
+        self._wrapped = wrapped
+        self._emit = emit
+        self._buf: List[str] = []
+        self.rich_proxied_file = wrapped
+
+    # ── TextIO surface ────────────────────────────────────────────────────
+
+    def write(self, text):
+        if not isinstance(text, str):
+            raise TypeError(
+                f"write() argument must be str, not {type(text).__name__}")
+        if not text:
+            return 0
+        parts = text.split("\n")
+        for part in parts[:-1]:
+            line = "".join(self._buf) + part
+            self._buf.clear()
+            self._emit_line(line)
+        if parts[-1]:
+            self._buf.append(parts[-1])
+        return len(text)
+
+    def flush(self):
+        if self._buf:
+            line = "".join(self._buf)
+            self._buf.clear()
+            self._emit_line(line)
+
+    def _emit_line(self, line: str):
+        if "\r" in line:                      # progress-style overwrite
+            line = line.rsplit("\r", 1)[-1]
+        line = line.strip()
+        if not line:
+            return
+        if "[" in line:                       # stray print() often carries
+            try:                              # Rich markup (e.g. "[bold]..")
+                line = Text.from_markup(line).plain.strip() or line
+            except Exception:
+                pass
+        try:
+            self._emit(line)
+        except Exception:
+            pass
+
+    def close(self):
+        # Never close the real stream: only flush what is still pending.
+        try:
+            self.flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        return self._wrapped.isatty()
+
+    def fileno(self):
+        return self._wrapped.fileno()
+
+    def writable(self):
+        return True
+
+    @property
+    def encoding(self):
+        return getattr(self._wrapped, "encoding", "utf-8")
+
+    @property
+    def errors(self):
+        return getattr(self._wrapped, "errors", "strict")
+
+    @property
+    def name(self):
+        return getattr(self._wrapped, "name", "<feed>")
+
+
 class ScanDashboard:
     """Thread-safe live scanning dashboard using Rich Live.
 
@@ -695,7 +784,12 @@ class ScanDashboard:
         self._input_stop = threading.Event()
         self._term_fd: Optional[int] = None
         self._term_attrs = None
+        self._term_out_fd: Optional[int] = None
         self.scroll_enabled: bool = False
+
+        # stdout/stderr shims active while the dashboard owns the screen
+        self._stdout_proxy: Optional[_FeedProxy] = None
+        self._stderr_proxy: Optional[_FeedProxy] = None
 
     # Lifecycle
 
@@ -753,15 +847,51 @@ class ScanDashboard:
             # biasa mengalir utuh ke log; panel live cukup di terminal.
             if not getattr(console, "is_terminal", False):
                 return
+            # screen=True → alternate screen buffer: the dashboard is a fixed
+            # canvas; terminal scrollback (mouse wheel) can no longer push it
+            # away and no frame is left behind when the scan ends.
             self._live = Live(
                 get_renderable=self._build_layout,
                 console=console,
                 refresh_per_second=15,
                 transient=True,
+                screen=True,
+                redirect_stdout=False,
+                redirect_stderr=False,
             )
             self._live.start()
             self._active = True
+            self._install_feed_proxy()
             self._start_scroll_listener()
+
+    def _install_feed_proxy(self):
+        """Route stray stdout/stderr lines into the activity feed."""
+        if self._stdout_proxy is not None:
+            return
+        dash = self
+        stdout_proxy = _FeedProxy(
+            sys.stdout, lambda line: dash.log_event(line, "white", kind="info"))
+        stderr_proxy = _FeedProxy(
+            sys.stderr, lambda line: dash.log_warning(line))
+        sys.stdout = stdout_proxy
+        sys.stderr = stderr_proxy
+        self._stdout_proxy = stdout_proxy
+        self._stderr_proxy = stderr_proxy
+
+    def _uninstall_feed_proxy(self):
+        """Flush and remove the stdout/stderr shims (idempotent)."""
+        for name in ("_stdout_proxy", "_stderr_proxy"):
+            proxy = getattr(self, name)
+            if proxy is None:
+                continue
+            try:
+                proxy.flush()
+            except Exception:
+                pass
+            stream = "stdout" if name == "_stdout_proxy" else "stderr"
+            if getattr(sys, stream) is proxy:
+                setattr(sys, stream, proxy.rich_proxied_file)
+            setattr(self, name, None)
 
     def stop(self, status: str = "COMPLETED"):
         """Stop the live dashboard."""
@@ -777,6 +907,7 @@ class ScanDashboard:
                 self.pipeline[-1]["status"] = "completed"
                 self.pipeline[-1]["detail"] = "report generated"
 
+        self._uninstall_feed_proxy()
         self._stop_scroll_listener()
 
         if self._live:
@@ -809,6 +940,15 @@ class ScanDashboard:
         self._term_fd = fd
         self._term_attrs = attrs
         self.scroll_enabled = True
+        try:
+            self._term_out_fd = sys.stdout.fileno()
+        except Exception:
+            self._term_out_fd = 1
+        try:
+            # SGR mouse tracking: wheel events arrive as \x1b[<64/65;x;yM
+            os.write(self._term_out_fd, _MOUSE_ON.encode())
+        except Exception:
+            self._term_out_fd = None
         self._input_stop.clear()
         thread = threading.Thread(target=self._input_loop, daemon=True,
                                   name="verdamt-scroll")
@@ -819,6 +959,12 @@ class ScanDashboard:
         thread = self._input_thread
         self._input_thread = None
         self._input_stop.set()
+        if self._term_out_fd is not None:
+            try:
+                os.write(self._term_out_fd, _MOUSE_OFF.encode())
+            except Exception:
+                pass
+            self._term_out_fd = None
         if self._term_fd is not None:
             try:
                 import termios
@@ -853,11 +999,17 @@ class ScanDashboard:
                 except Exception:
                     pass
 
+    _KEY_RE = re.compile(
+        r"\x1b\[<[0-9;]*[Mm]"          # SGR mouse report (wheel/click)
+        r"|\x1b\[[0-9;]*[A-Za-z~]"     # CSI key or sequence
+        r"|\x1bO[A-Z]"                 # SS3 application cursor keys
+        r"|\x1b.")
+
     def _handle_keys(self, data: str):
-        for key in re.findall(r"\x1b\[[0-9;]*[A-Za-z~]|\x1b.", data):
-            if key == "\x1b[A":
+        for key in self._KEY_RE.findall(data):
+            if key in ("\x1b[A", "\x1bOA"):
                 self.scroll_events(-_SCROLL_STEP)
-            elif key == "\x1b[B":
+            elif key in ("\x1b[B", "\x1bOB"):
                 self.scroll_events(_SCROLL_STEP)
             elif key == "\x1b[5~":
                 self.scroll_events(-_SCROLL_STEP * 4)
@@ -865,6 +1017,14 @@ class ScanDashboard:
                 self.scroll_events(_SCROLL_STEP * 4)
             elif key in ("\x1b[F", "\x1b[4~", "\x1b[1~", "\x1b[H"):
                 self.scroll_events(0)
+            elif key.startswith("\x1b[<"):
+                m = re.match(r"\x1b\[<(\d+);", key)
+                if not m:
+                    continue
+                btn = int(m.group(1))
+                if btn & 64 and not btn & 32:      # 64=wheel-up, 65=wheel-down
+                    self.scroll_events(
+                        _WHEEL_STEP if btn & 1 else -_WHEEL_STEP)
 
     def scroll_events(self, delta: int):
         """Move the activity-feed cursor; 0 re-arms auto-follow."""
@@ -877,7 +1037,11 @@ class ScanDashboard:
                 return
             oldest = newest - len(self.recent_events) + 1
             if self._view_anchor is None:
+                if delta > 0:
+                    return                       # already at the newest events
                 top = self._render_top_seq or oldest
+                if self._render_top_seq and top <= oldest:
+                    return                       # whole history already visible
             else:
                 top = self._view_anchor
             anchor = top + delta
@@ -1154,13 +1318,14 @@ class ScanDashboard:
         if not events:
             return [_blank(width, D_PANEL) for _ in range(height)], seq
 
+        content_w = max(8, width - _SCROLLBAR_W)
         oldest = seq - len(events) + 1
         budget = height
         chosen: List[Tuple[int, int, int]] = []   # (seq, idx, lines)
 
         if anchor is None:
             for i in range(len(events) - 1, -1, -1):
-                lines = _event_lines(events[i], width, D_PANEL)
+                lines = _event_lines(events[i], content_w, D_PANEL)
                 if sum(c for _, _, c in chosen) + len(lines) > budget:
                     break
                 chosen.append((seq - len(events) + 1 + i, i, len(lines)))
@@ -1168,21 +1333,67 @@ class ScanDashboard:
         else:
             start = max(0, min(len(events) - 1, anchor - oldest))
             for i in range(start, len(events)):
-                lines = _event_lines(events[i], width, D_PANEL)
+                lines = _event_lines(events[i], content_w, D_PANEL)
                 if sum(c for _, _, c in chosen) + len(lines) > budget:
                     break
                 chosen.append((seq - len(events) + 1 + i, i, len(lines)))
 
         out: List[Text] = []
+        visible_idx: List[int] = []
         for _, idx, _c in chosen:
-            out.extend(_event_lines(events[idx], width, D_PANEL))
+            out.extend(_event_lines(events[idx], content_w, D_PANEL))
+            visible_idx.append(idx)
         top_seq = chosen[0][0] if chosen else seq
         with self._lock:
             self._render_top_seq = top_seq
-        return _fit_height(out, height, width, D_PANEL), top_seq
 
-    def _activity_badge(self, status: str, hidden_older: int) -> Text:
-        if hidden_older > 0:
+        body = _fit_height(out, height, content_w, D_PANEL)
+        bar = self._activity_scrollbar(height, len(events), visible_idx, anchor)
+        rows: List[Text] = []
+        for i in range(height):
+            row = Text(no_wrap=True, end="")
+            row.append_text(body[i])
+            ch, style = bar[i]
+            row.append(ch, style)
+            rows.append(_fit(row, width, D_PANEL))
+        return rows, top_seq
+
+    def _activity_scrollbar(self, height: int, total: int,
+                            visible_idx: List[int],
+                            anchor: Optional[int]) -> List[Tuple[str, str]]:
+        """One (char, style) cell per row describing the feed scroll position.
+
+        Drawn only while part of the history sits outside the window; the
+        thumb is gold on auto-follow and informational blue once the view is
+        parked on older events.
+        """
+        blank = (" ", f"on {D_PANEL}")
+        cells = [blank for _ in range(max(0, height))]
+        if total <= 0 or height <= 0 or not visible_idx:
+            return cells
+        top, bottom = visible_idx[0], visible_idx[-1]
+        if top <= 0 and bottom >= total - 1:
+            return cells                       # whole history on screen
+        span = max(1, bottom - top + 1)
+        thumb_h = max(1, min(height, int(round(height * span / total))))
+        travel = total - span
+        pos = 0 if travel <= 0 else int(round(top / travel * (height - thumb_h)))
+        pos = max(0, min(height - thumb_h, pos))
+        thumb_style = (f"bold {D_GOLD} on {D_PANEL}" if anchor is None
+                       else f"bold {D_INFO} on {D_PANEL}")
+        track_style = f"{D_BORDER} on {D_PANEL}"
+        for i in range(height):
+            if pos <= i < pos + thumb_h:
+                cells[i] = ("█", thumb_style)
+            else:
+                cells[i] = ("░", track_style)
+        return cells
+
+    def _activity_badge(self, status: str, hidden_older: int,
+                        following: bool = True) -> Text:
+        if not following:
+            text, colour = "↕ SCROLLED · End", D_INFO
+        elif hidden_older > 0:
             text, colour = f"▲ {hidden_older} EARLIER", D_GOLD
         elif status in ("STARTING", "SCANNING"):
             text, colour = "● LIVE", D_EMERALD
@@ -1336,10 +1547,11 @@ class ScanDashboard:
 
         candidates = [
             _head([("╱" * 3, D_GOLD), ("   ", D_TEXT),
-                   ("↑↓ scroll · End follow", D_DIM)]),
-            _head([("↑↓ scroll · End follow", D_DIM)]),
-            _head([("╱" * 3, D_GOLD), ("   ", D_TEXT), ("↑↓ scroll", D_DIM)]),
-            _head([("↑↓ scroll", D_DIM)]),
+                   ("↑↓/wheel scroll · End follow", D_DIM)]),
+            _head([("↑↓/wheel scroll · End follow", D_DIM)]),
+            _head([("╱" * 3, D_GOLD), ("   ", D_TEXT),
+                   ("↑↓/wheel · End", D_DIM)]),
+            _head([("↑↓/wheel · End", D_DIM)]),
             _head([("╱" * 3, D_GOLD)]),
             _head([]),
         ]
@@ -1475,7 +1687,8 @@ class ScanDashboard:
             oldest = snap_seq - len(snap_events) + 1 if snap_events else snap_seq
             hidden = max(0, top_seq - oldest)
             act_panel = _frame(act_lines, act_w, body_h, title="RECENT ACTIVITY",
-                               badge=self._activity_badge(snap_status, hidden))
+                               badge=self._activity_badge(snap_status, hidden,
+                                                          snap_anchor is None))
 
             visible, _start, spacing = self._pipeline_window(snap_pipeline, pipe_h - 2)
             stage_active = any(s["status"] == "active" for s in snap_pipeline)
@@ -1516,7 +1729,8 @@ class ScanDashboard:
             oldest = snap_seq - len(snap_events) + 1 if snap_events else snap_seq
             hidden = max(0, top_seq - oldest)
             pieces.extend(_frame(act_lines, tw, act_h, title="RECENT ACTIVITY",
-                                 badge=self._activity_badge(snap_status, hidden)))
+                                 badge=self._activity_badge(snap_status, hidden,
+                                                            snap_anchor is None)))
 
             pipe_h2 = met_h2 = 0
             if rest >= 8:
@@ -1576,8 +1790,29 @@ def draw_box(title, lines, color=None):
 
 
 def draw_table(headers, rows, padding=2, title=None):
-    """Animated table rendering with premium styling."""
+    """Animated table rendering with premium styling.
+
+    While a ScanDashboard is active the rows are streamed into the Recent
+    Activity feed instead of printed above the live canvas, so nothing ever
+    escapes the dashboard frame.
+    """
     if not rows: return
+
+    dash = ScanDashboard._instance
+    if dash is not None and ScanDashboard.active():
+        if title:
+            dash.log_event(title, "white", kind="info")
+        shown = rows[:20]
+        for r in shown:
+            cells = [strip_ansi(str(x)).strip() for x in r]
+            line = "  ".join(c for c in cells if c)
+            if line:
+                dash.log_event(line, "white", kind="ok")
+        if len(rows) > len(shown):
+            dash.log_event(f"… {len(rows) - len(shown)} more rows",
+                           "white", kind="info")
+        return
+
     table = Table(
         title=f" {_TARGET} {title} " if title else None,
         title_style="bold white",

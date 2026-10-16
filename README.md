@@ -54,7 +54,15 @@
 Tangkapan layar langsung antarmuka terminal interaktif dan artefak laporan yang dihasilkan:
 
 ### 1. Tactical Terminal TUI Dashboard
-Dasbor terminal taktis 3-kolom berbasis `Rich` (15 FPS) dengan status pipeline, metrik hardware, sparkline RPS, dan pemantauan temuan kerentanan secara *real-time*:
+Dasbor terminal taktis 3-kolom berbasis `Rich` (15 FPS) dengan status pipeline, metrik hardware, sparkline RPS, dan pemantauan temuan kerentanan secara *real-time*.
+
+Dasbor kini berjalan pada *alternate screen buffer* — kanvas tetap: seluruh output (log fase, tabel hasil, bahkan `print` liar) dialihkan ke dalam panel **Recent Activity**, dan scroll terminal tidak lagi mampu mendorong dasbor keluar layar. Feed aktivitas memiliki **scrollbar** sendiri:
+
+- `↑` / `↓` atau **roda mouse** — gulir riwayat aktivitas ke atas / bawah
+- `PgUp` / `PgDn` — lompat satu halaman riwayat
+- `End` — kembali ke mode *live follow* (badge berubah menjadi `↕ SCROLLED · End` saat bebas gulir)
+
+> Seleksi teks dengan mouse tetap bisa dilakukan dengan menahan `Shift`.
 
 ![Verdamt-Snipe Tactical TUI Dashboard](assets/terminal_tui_dashboard.jpg)
 
@@ -74,7 +82,7 @@ Laporan audit keamanan interaktif modern dengan tab filter keparahan OWASP, kart
 | **Go Engine Bridge** | `core/go_bridge.py` + `go/cmd/engine` | Engine native JSON-over-Unix-Socket untuk probing massal & JS scanning; auto-compile saat Go terpasang, fallback mulus ke Python. |
 | **External Go Tooling** | ProjectDiscovery & komunitas | Integrasi `subfinder`, `httpx`, `katana`, `nuclei`, `dalfox`, `gau`, `waybackurls`, `ffuf`, `gf` dengan degradasi anggun bila tidak terpasang. |
 | **Browser Automation** | `Playwright Chromium` + `SharedPool` | 10 modul otomasi deep-browser bebas memory leak via singleton pool context terisolasi. |
-| **Tactical TUI Dashboard** | `rich` Live Engine (15 FPS) + `psutil` | Dasbor konsol 3-kolom informatif: pipeline phase, sparkline RPS, temuan vuln, dan metrik hardware. |
+| **Tactical TUI Dashboard** | `rich` Live Engine (15 FPS) + `psutil` | Dasbor konsol 3-kolom informatif: pipeline phase, sparkline RPS, temuan vuln, metrik hardware — kanvas tetap (alternate screen) dengan feed aktivitas ber-scrollbar. |
 | **Policy & Audit Engine** | `ScanPolicy` + `AuditLogger` (`.jsonl`) | Scope enforcer, limitasi anggaran request, serta perekaman seluruh transaksi HTTP untuk PoC `curl`. |
 | **State Management** | `SessionManager` + `ProjectState` | Manajemen multi-token (Bearer/Cookie jar) & mekanisme save/resume sesi pemindaian (`.state`). |
 | **OOB / Interactsh Engine** | `python-interactsh` + `modules/extras/oob_detector.py` | Callback domain untuk Blind SSRF/XSS/RCE dengan logging hit *real-time*. |
