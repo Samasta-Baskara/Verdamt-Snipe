@@ -276,6 +276,33 @@ def resolve_proxy(proxy: str | None = None) -> str | None:
     return os.environ.get("VERDAMT_PROXY") or None
 
 
+def verify_proxy_reachable(proxy: str | None = None, timeout: float = 4.0) -> bool:
+    """Pre-flight TCP health-check toward the active proxy host:port.
+
+    One-shot (NOT per-request): confirms the proxy daemon is listening
+    before a scan starts. HTTP/SOCKS transport paths are already
+    fail-closed — if the proxy is down every request errors instead of
+    silently going direct — but that failure is silent until the first
+    request times out. This surfaces it up-front.
+
+    Returns True when no proxy is configured (nothing to check / user is
+    scanning direct on purpose) or when the TCP connect succeeds.
+    """
+    proxy_url = resolve_proxy(proxy)
+    if not proxy_url:
+        return True
+    parsed = urlparse(proxy_url)
+    host = parsed.hostname
+    port = parsed.port or (443 if (parsed.scheme or "").lower() in ("http", "https") else 1080)
+    if not host:
+        return True
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def _normalize_local_target(host: str, scheme: str) -> str:
     """Plain socks5/socks4 resolve locally — force a deterministic IPv4.
 

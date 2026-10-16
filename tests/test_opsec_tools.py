@@ -217,8 +217,54 @@ class TestOpsecChecks(unittest.TestCase):
              patch("os.path.expanduser", return_value="/nonexistent"), \
              patch.dict("os.environ", {}, clear=True):
             results = opsec_check.run_full_check()
-        for key in ("ip", "dns", "webrtc", "env", "issues", "safe"):
+        for key in ("ip", "dns", "webrtc", "env", "issues", "safe",
+                    "proxy_reachable", "active_proxy"):
             self.assertIn(key, results)
+
+    def test_run_full_check_flags_dead_proxy(self):
+        """Proxy set tapi mati -> issue PROXY DOWN (fail-closed, bukan leak)."""
+        with patch("core.opsec_check.subprocess.run",
+                   return_value=MagicMock(returncode=1, stdout="")), \
+             patch("core.opsec_check.socket.gethostbyname_ex", side_effect=OSError), \
+             patch("core.doh_resolve.doh_resolve", return_value=[]), \
+             patch("os.path.expanduser", return_value="/nonexistent"), \
+             patch("core.proxy_manager.verify_proxy_reachable", return_value=False), \
+             patch.dict("os.environ", {"VERDAMT_PROXY": "socks5h://203.0.113.1:9050"}):
+            results = opsec_check.run_full_check()
+        self.assertFalse(results["proxy_reachable"])
+        self.assertTrue(any("PROXY DOWN" in i for i in results["issues"]))
+
+
+class TestVerifyProxyReachable(unittest.TestCase):
+    """Pre-flight proxy health-check — TCP probe sekali, bukan per-request."""
+
+    def test_no_proxy_configured_is_ok(self):
+        with patch("core.proxy_manager.resolve_proxy", return_value=None):
+            from core.proxy_manager import verify_proxy_reachable
+            self.assertTrue(verify_proxy_reachable(None))
+
+    def test_reachable_proxy_connect_succeeds(self):
+        from core.proxy_manager import verify_proxy_reachable
+        with patch("core.proxy_manager.socket.create_connection") as mock_conn:
+            mock_conn.return_value.__enter__ = lambda s: s
+            mock_conn.return_value.__exit__ = lambda s, *a: False
+            self.assertTrue(verify_proxy_reachable("socks5h://127.0.0.1:9050"))
+
+    def test_dead_proxy_returns_false(self):
+        from core.proxy_manager import verify_proxy_reachable
+        with patch("core.proxy_manager.socket.create_connection",
+                   side_effect=OSError("refused")):
+            self.assertFalse(verify_proxy_reachable("socks5h://203.0.113.1:9050", timeout=1))
+
+    def test_default_port_inferred_from_scheme(self):
+        from core.proxy_manager import verify_proxy_reachable
+        with patch("core.proxy_manager.socket.create_connection") as mock_conn:
+            mock_conn.return_value.__enter__ = lambda s: s
+            mock_conn.return_value.__exit__ = lambda s, *a: False
+            verify_proxy_reachable("socks5://1.2.3.4")
+            self.assertEqual(mock_conn.call_args[0][0], ("1.2.3.4", 1080))
+            verify_proxy_reachable("https://1.2.3.4")
+            self.assertEqual(mock_conn.call_args[0][0], ("1.2.3.4", 443))
 
 
 if __name__ == "__main__":

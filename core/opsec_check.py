@@ -114,11 +114,18 @@ def check_env_leak() -> dict:
 
 def run_full_check(proxy: str | None = None) -> dict:
     """Run full OPSEC checklist."""
+    from core.proxy_manager import resolve_proxy, verify_proxy_reachable
+    active_proxy = proxy or resolve_proxy()
     results = {
         "ip": check_ip(proxy),
         "dns": check_dns(proxy),
         "webrtc": check_websocket_leak(),
         "env": check_env_leak() if not proxy else {"env_set": True, "vars": {"VERDAMT_PROXY": proxy}},
+        # Pre-flight proxy health: True when no proxy (scanning direct on
+        # purpose) or the proxy daemon answers TCP. False = proxy set but
+        # dead -> every request will fail-closed (safe, but wasted scan).
+        "proxy_reachable": verify_proxy_reachable(active_proxy) if active_proxy else True,
+        "active_proxy": active_proxy,
     }
 
     # Overall status
@@ -129,6 +136,8 @@ def run_full_check(proxy: str | None = None) -> dict:
         issues.append("DNS LEAK: DNS queries visible to ISP")
     if results["webrtc"]["webRTC_risk"]:
         issues.append("WebRTC RISK: Browser may leak IP behind proxy")
+    if active_proxy and not results["proxy_reachable"]:
+        issues.append(f"PROXY DOWN: {active_proxy} not answering — requests will fail (no leak, but scan will find nothing)")
 
     results["issues"] = issues
     results["safe"] = len(issues) == 0
@@ -180,6 +189,16 @@ def print_results(results: dict):
             print(f"    {var} = {val}")
     else:
         print("  Proxy env:  NOT SET")
+
+    # Proxy reachability (pre-flight health-check)
+    if results.get("active_proxy"):
+        print("\n  [PROXY HEALTH]")
+        print(f"  Proxy:      {results['active_proxy']}")
+        if results.get("proxy_reachable"):
+            print("  Status:     OK — proxy answering")
+        else:
+            print("  Status:     !! PROXY NOT ANSWERING !!")
+            print("              (requests fail-closed: no IP leak, but scan finds nothing)")
 
     # Issues
     print(f"\n  {'=' * 46}")

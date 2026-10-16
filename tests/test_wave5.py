@@ -49,7 +49,7 @@ class TestDOMXSSFiltering(unittest.TestCase):
         self.assertEqual(scanner.js_urls, ["https://x.com/js/app.js"])
 
 
-class TestDOMXSSTaint(unittest.TestCase):
+class TestDOMXSSTaint(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.scanner = DOMXSSScanner(["https://x.com/js/app.js"])
 
