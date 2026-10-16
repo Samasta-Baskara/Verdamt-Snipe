@@ -391,7 +391,8 @@ class TestToolingMetrics(unittest.TestCase):
         lines = _plain(_segments(dash, 72, 30))
         self.assertTrue(all(cell_len(ln) == 72 for ln in lines))
         text = "\n".join(lines)
-        for token in ("req/s", "Stage 0/10", "Targets", "1 domain",
+        expected_stage = f"Stage 0/{len(_PIPELINE_STAGES_BY_MODE['FULL'])}"
+        for token in ("req/s", expected_stage, "Targets", "1 domain",
                       "Subdomains", "Endpoints", "7"):
             self.assertIn(token, text)
         # the counts line must not be clipped mid-word

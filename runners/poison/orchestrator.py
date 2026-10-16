@@ -10,10 +10,10 @@ from statistics import median
 from urllib.parse import urlparse, urlencode
 from typing import Dict, List, Optional, Set, Tuple
 from core.external_tools import _find_tool
-from core.ui import ph, i, w, s, p, G, C, B, N
+from core.ui import ph, i, w, s, p, G, C, B, N, ScanDashboard
 from core.proxy_manager import get_global_proxy_manager
 from modules.wordlists import WordlistProvider, PROVIDER
-from runners.shared import inject_query_payload
+from runners.shared import inject_query_payload, run_katana_phase
 
 from .flood import phase_bruteforce, phase_param_flood, phase_payload_flood
 from .state import PHASE0_TIME_CAP, PoisonState, _budget_ok, _charge_external, _exhaust_finding, _get_proxy_flag, _parse_finding_param
@@ -335,6 +335,10 @@ async def run_poison_assault(
     3-block wave loop (discovery → detection → assault), each block under a
     hard deadline. Results self-feed into the next wave. Adaptive concurrency
     driven by real request latency.
+
+    Saat korpus tipis (mode 4 dijalankan tanpa mode 1/2 lebih dulu), sebuah
+    seed crawl Katana singkat dijalankan sebagai setup — di luar jam wave
+    loop (clock ``state.start_time`` belum berjalan), sama seperti Phase 0.
     """
     if policy and policy.mode == "passive":
         return [], {}, list(scan_urls), []
@@ -424,6 +428,43 @@ async def run_poison_assault(
                     state.policy.authorize_host(state.origin_ip)
                 for sv in services:
                     sv["origin_ip"] = state.origin_ip
+
+    # Corpus prep: mode 2 tidak lagi crawl (Katana = mode 3-5). Dijalankan
+    # tanpa mode 1/2 lebih dulu, korpus mode 4 cuma berisi service root —
+    # seed crawl tipis (setup, di luar jam wave — sama seperti Phase 0)
+    # supaya wave loop menyerang path aplikasi yang nyata.
+    crawl_timeout = min(60, max_duration // 2)
+    if not services:
+        skip_reason = "tanpa service"
+    elif len(state.scan_urls) > len(services):
+        skip_reason = "korpus sudah terisi"
+    elif crawl_timeout < 20:
+        skip_reason = "budget terlalu kecil untuk seed crawl"
+    else:
+        skip_reason = None
+
+    if skip_reason is None:
+        ph("SEED CRAWL: Corpus tipis — Katana seeding endpoints")
+        kr = await run_katana_phase(seed_url, policy=policy,
+                                    proxy=_get_proxy_flag() or None,
+                                    timeout=crawl_timeout)
+        seeded = (scope_guard.filter_urls(kr.get("endpoints", []) or [])
+                  if scope_guard else (kr.get("endpoints") or []))
+        for _u in seeded:
+            state.scan_urls.add(_u)
+        _bucket = state.params.setdefault("/", [])
+        for _p in (kr.get("params") or []):
+            if _p not in _bucket:
+                _bucket.append(_p)
+    else:
+        if ScanDashboard.active():
+            ScanDashboard.get().mark_stage_status("skipped", "seed crawl")
+        if skip_reason != "korpus sudah terisi":
+            w(f"Seed crawl skipped ({skip_reason})")
+
+    # Wave loop start — stage "Cache Poisoning" aktif kembali setelah seed
+    # crawl (di mode FULL, ph ini memetakan ke stage "Poisoning Wave Loop").
+    ph("WAVE LOOP: Cache poison + smuggling + brute + flood")
 
     # Wave clock starts now: Phase 0 no longer eats into --max-time.
     state.start_time = time.time()

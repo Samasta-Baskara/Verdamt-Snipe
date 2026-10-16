@@ -1,7 +1,6 @@
 import asyncio
 from urllib.parse import urlparse
 
-from core.external_tools import run_katana
 from modules.web.recon_crawlers.api_profiler import APIProfiler
 from modules.extras.arjun import AsyncParamBruteforcer, ParamBruteforcer
 from modules.auth.tester import AuthTester
@@ -34,7 +33,11 @@ async def run_app_analysis(
     is_turbo=False,
     policy=None,
 ):
-    """Option 2: crawling, SPA discovery, parameter discovery, API/auth analysis."""
+    """Option 2: light crawling, SPA discovery, param discovery, API/auth analysis.
+
+    Katana TIDAK berjalan di sini (fase resmi mode 3/4/5 di runners/shared.py)
+    — mode 2 memakai DeepCrawler sebagai crawl ringan Python.
+    """
     from core.ui import ph
 
     if policy and policy.mode == "passive":
@@ -79,24 +82,14 @@ async def run_app_analysis(
             w(f"OpenAPI spec fetch/parse failed for {sp}: "
               f"{e.__class__.__name__}: {str(e)[:80]}")
 
-    async def _run_katana_task():
+    async def _run_deep_crawl_task():
+        """Crawl ringan Python — mode 2 tidak memakai Katana (mode 3-5)."""
         try:
-            from core.proxy_manager import get_global_proxy_manager
-            pm = get_global_proxy_manager()
-            active_proxy = pm.current_proxy if pm and pm.current_proxy else None
-            res = await asyncio.wait_for(
-                asyncio.to_thread(run_katana, seed_url, timeout=60,
-                                  policy=policy, proxy=active_proxy),
-                timeout=60
-            )
+            res = await DeepCrawler(seed_url, async_engine=async_engine).run()
             return res or {"endpoints": [], "params": []}
-        except asyncio.TimeoutError:
-            from core.ui import w
-            w("Katana crawl timed out after 60s — falling back to DeepCrawler")
-            return {"endpoints": [], "params": []}
         except Exception as e:
             from core.ui import w
-            w(f"Katana crawl failed: {e.__class__.__name__}: {str(e)[:80]} — falling back to DeepCrawler")
+            w(f"DeepCrawler failed: {e.__class__.__name__}: {str(e)[:80]}")
             return {"endpoints": [], "params": []}
 
     async def _run_browser_recon_task():
@@ -107,28 +100,43 @@ async def run_app_analysis(
         except Exception:
             return {"endpoints": []}
 
+    def _has_stage(keyword: str) -> bool:
+        """True bila pipeline dashboard punya stage dengan keyword tsb.
+
+        Dipakai untuk fase kondisional: di mode FULL tidak ada stage
+        "Deep Crawl" terpisah (menyatu dengan "App & Param Discovery"),
+        jadi ph DEEP CRAWL tidak dikirim — kalau dikirim, mapping crawl
+        justru menyalakan ulang stage "Katana Crawl" yang sudah lewat.
+        """
+        try:
+            from core.ui import ScanDashboard
+            if not ScanDashboard.active():
+                return False
+            return any(keyword in st["name"].lower()
+                       for st in ScanDashboard.get().pipeline)
+        except Exception:
+            return False
+
+    if _has_stage("deep crawl"):
+        ph("DEEP CRAWL: Mapping application endpoints (DeepCrawler + Browser)")
     from core.ui import Spinner
-    spin = Spinner("Running Katana Crawler & Browser Recon...")
+    spin = Spinner("Running DeepCrawler & Browser Recon...")
     spin.start()
-    katana_res, spa_results = await asyncio.gather(
-        _run_katana_task(),
+    crawl_res, spa_results = await asyncio.gather(
+        _run_deep_crawl_task(),
         _run_browser_recon_task(),
         return_exceptions=True
     )
     spin.stop()
 
-    if isinstance(katana_res, Exception):
-        katana_res = {"endpoints": [], "params": []}
+    if isinstance(crawl_res, Exception):
+        crawl_res = {"endpoints": [], "params": []}
     if isinstance(spa_results, Exception):
         spa_results = {"endpoints": []}
 
-    if katana_res and katana_res.get("endpoints"):
-        urls.extend(katana_res["endpoints"])
-        merge_params(params, "/", katana_res["params"])
-    else:
-        crawl_results = await DeepCrawler(seed_url, async_engine=async_engine).run()
-        urls.extend(crawl_results["endpoints"])
-        merge_params(params, "/", crawl_results.get("params", []))
+    if crawl_res and crawl_res.get("endpoints"):
+        urls.extend(crawl_res["endpoints"])
+        merge_params(params, "/", crawl_res.get("params", []))
 
     if spa_results and spa_results.get("endpoints"):
         urls.extend(scope_guard.filter_urls(spa_results["endpoints"]))
@@ -212,6 +220,7 @@ async def run_app_analysis(
     async def _run_graphql():
         return await GraphQLProfiler(seed_url, async_engine=async_engine).run()
 
+    ph("APP DEEP ANALYSIS: Running parallel analysis suite")
     from core.ui import Spinner
     spin = Spinner("Running parallel App Analysis & Playwright Suite modules...")
     spin.start()

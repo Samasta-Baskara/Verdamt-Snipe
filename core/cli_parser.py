@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qsl, urlencode
 from pathlib import Path
 
-from core.ui import print_banner, loading_animation, ph, i, w, s, Spinner, G, Y, R, C, W, N, B, M, D, GY, O
+from core.ui import print_banner, loading_animation, ph, i, w, s, Spinner, G, Y, R, C, W, N, B, M, D, GY, O, ScanDashboard
 from core.ui import draw_interactive_menu, draw_help_screen, draw_confirm_bar, _MODES, _IMPERSONATE_OPTS
 from core.network import GhostMode
 from core.scope import ScopeGuard
@@ -20,7 +20,7 @@ from core.async_network import AsyncNetworkEngine
 from core.project import ProjectState, sanitize_filename
 from modules.scanners import VulnVerifier, AsyncVulnEngine
 from modules.web.server_side.blind_sqli_extract import BlindSQLiExtractor
-from runners.shared import inject_query_payload
+from runners.shared import inject_query_payload, run_katana_phase, run_waf_origin_phase
 from reports.engine import ReportEngine, finding_cvss
 from runners.surface import run_surface_scan
 from runners.recon_intel import run_recon_intel
@@ -976,7 +976,7 @@ async def _execute_mode(
 ):
     """Execute the selected scan mode."""
 
-    if policy and policy.mode == "passive" and mode in {"app", "assault", "poisoning", "full"}:
+    if policy and policy.mode == "passive" and mode in {"app", "assault", "poisoning", "full", "nuclei"}:
         w(f"Passive policy blocked active mode: {mode}")
         save_project_state()
         return
@@ -1020,7 +1020,7 @@ async def _execute_mode(
 
     elif mode == "app":
         await _run_app_mode(
-            target, seed_url, services, scan_urls, scope_guard, session_manager,
+            target, seed_url, services, subs, scan_urls, scope_guard, session_manager,
             auth_headers, auth_headers2, async_engine, is_turbo, all_findings,
             params, policy=policy,
         )
@@ -1049,6 +1049,7 @@ async def _execute_mode(
             auth_headers, auth_headers2, async_engine, VULN_THREADS, is_turbo,
             module_flags=module_flags, policy=policy,
             no_dork=no_dork, archive_timeout=archive_timeout,
+            max_time=max_time,
         )
         all_findings.extend(full_f)
         params.update(full_p)
@@ -1061,32 +1062,13 @@ async def _execute_mode(
         w(f"Unknown mode: {mode}")
 
 
-async def _run_app_mode(target, seed_url, services, scan_urls, scope_guard, session_manager, auth_headers, auth_headers2, async_engine, is_turbo, all_findings, params, policy=None):
-    """App analysis mode: WAF bypass + origin hunt + param discovery."""
-    wafs = [_w for _s in services for _w in _s.get("waf", [])]
-    if wafs:
-        ph("WAF DETECTED: Running origin IP hunt")
-        from modules.waf.origin_hunter import hunt_origin
-        svc_hosts = [urlparse(sv["url"]).hostname for sv in services if sv.get("url")]
-        try:
-            origin = await asyncio.wait_for(
-                hunt_origin(target, svc_hosts, proxy=_active_proxy()), timeout=180)
-        except asyncio.TimeoutError:
-            w("Origin hunt timed out after 180s — scanning through WAF (limited)")
-            origin = None
-        except Exception as e:
-            w(f"Origin hunt failed: {str(e)[:80]} — scanning through WAF (limited)")
-            origin = None
-        if origin and origin.get("origin_ip"):
-            origin_ip = origin["origin_ip"]
-            print(f"  {G}[+] Origin IP: {origin_ip} ({origin['protocol']}){N}")
-            print(f"  {G}[+] Scanning origin directly — WAF by-passed{N}")
-            if policy:
-                policy.authorize_host(origin_ip)
-            for sv in services:
-                sv["origin_ip"] = origin_ip
-        else:
-            w("Origin IP not found. Scanning through WAF (limited).")
+async def _run_app_mode(target, seed_url, services, subs, scan_urls, scope_guard, session_manager, auth_headers, auth_headers2, async_engine, is_turbo, all_findings, params, policy=None):
+    """App analysis mode: WAF/origin hunt + light-crawl analysis.
+
+    Katana tidak berjalan di sini (mode 3-5 punya fase Katana Crawl resmi);
+    crawl ringan mode 2 memakai DeepCrawler di dalam run_app_analysis.
+    """
+    await run_waf_origin_phase(target, services, subs, policy=policy)
     f, p, u = await run_app_analysis(
         target, seed_url, services, scan_urls, scope_guard, session_manager,
         auth_headers, auth_headers2, async_engine, is_turbo, policy=policy,
@@ -1097,15 +1079,25 @@ async def _run_app_mode(target, seed_url, services, scan_urls, scope_guard, sess
 
 
 async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_guard, session_manager, auth_headers, auth_headers2, async_engine, is_turbo, all_findings, params, target_wafs, module_flags=None, policy=None, no_dork=False, archive_timeout=None):
-    """Assault mode: auto pipeline recon → app → assault.
+    """Assault mode: auto-enrich (recon → katana → app) → WAF → assault.
 
-    Enrichment phases (recon/app/origin/katana) are best-effort: a failure
-    in one continues with the data we already have — same contract as
-    runners/full_assault.py. The final run_vuln_assault failure is NOT
-    swallowed: async_main saves state, still reports and cleans up before
-    re-raising, so the error stays visible (non-zero exit).
+    Fase enrichment HANYA berjalan saat korpus/param kosong dan tampil sebagai
+    fase resmi di dashboard/README (Auto-Recon / Katana Crawl / Auto-App —
+    kontrak sama dengan _PIPELINE_STAGES_BY_MODE["ASSAULT"]). Best-effort:
+    kegagalan satu fase lanjut dengan data yang ada. Kegagalan
+    run_vuln_assault TIDAK ditelan: async_main menyimpan state, tetap
+    verify/report, lalu melempar ulang supaya exit code non-zero.
     """
-    if not params and len(scan_urls) <= len(services):
+    need_enrich = not params
+
+    # Korpus/param sudah ada (mode 1/2 dijalankan lebih dulu) → tandai fase
+    # enrichment sebagai skipped, jangan seolah-olah "completed".
+    if not need_enrich and ScanDashboard.active():
+        dash = ScanDashboard.get()
+        for kw in ("auto-recon", "katana crawl", "auto-app"):
+            dash.mark_stage_status("skipped", kw)
+
+    if need_enrich and len(scan_urls) <= len(services):
         ph("AUTO-RECON: Collecting intel before assault")
         try:
             f, u = await run_recon_intel(
@@ -1118,7 +1110,21 @@ async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_g
             scan_urls.extend(u)
         except Exception as e:
             w(f"AUTO-RECON failed: {str(e)[:80]} — continuing with existing URLs")
-    if not params:
+
+    if need_enrich:
+        ph("KATANA CRAWL: Expanding endpoint & parameter corpus")
+        kr = await run_katana_phase(seed_url, policy=policy)
+        crawled = scope_guard.filter_urls(kr.get("endpoints", []) or [])
+        if crawled:
+            merged = sorted(set(scan_urls + crawled))
+            scan_urls.clear()
+            scan_urls.extend(merged)
+        bucket = params.setdefault("/", [])
+        for _p in (kr.get("params") or []):
+            if _p not in bucket:
+                bucket.append(_p)
+
+    if need_enrich:
         ph("AUTO-APP: Analyzing application structure")
         try:
             f, p, u = await run_app_analysis(
@@ -1130,51 +1136,10 @@ async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_g
             scan_urls.extend(u)
         except Exception as e:
             w(f"AUTO-APP failed: {str(e)[:80]} — continuing with existing data")
-    _wafs = [_w for _svc in services for _w in _svc.get("waf", [])]
-    if _wafs:
-        try:
-            from modules.waf.origin_hunter import hunt_origin
-            # Backstop: hunt_origin = loop DNS + banyak curl tanpa batas
-            # waktu sendiri — tanpa ini fase origin bisa menahan seluruh
-            # assault tanpa log timeout.
-            origin = await asyncio.wait_for(
-                hunt_origin(target, subs, proxy=_active_proxy()), timeout=180)
-            if origin and origin.get("origin_ip"):
-                origin_ip = origin["origin_ip"]
-                print(f"  {G}[+] Origin IP: {origin_ip} — scanning directly{N}")
-                if policy:
-                    # Samakan dengan _run_app_mode: tanpa authorize_host,
-                    # semua URL IP dibuang policy.filter_urls /
-                    # out_of_scope_host oleh konsumen berikutnya.
-                    policy.authorize_host(origin_ip)
-                for sv in services:
-                    sv["origin_ip"] = origin_ip
-        except asyncio.TimeoutError:
-            w("Origin hunt timed out after 180s — scanning through WAF")
-        except Exception as e:
-            w(f"Origin hunt failed: {str(e)[:80]} — scanning through WAF")
-    if not params:
-        from core.external_tools import run_katana
-        # run_katana = sync subprocess (60s) — to_thread biar event loop
-        # (spinner, task async lain) gak ikut membeku selama crawl.
-        try:
-            # Backstop 75s > timeout internal 60s (_run_tool) — kalau jalur
-            # salvage communicate menggantung, mode 3 tetap lanjut.
-            kr = await asyncio.wait_for(
-                asyncio.to_thread(run_katana, seed_url, policy=policy,
-                                  proxy=_active_proxy()),
-                timeout=75,
-            ) or {}
-            bucket = params.setdefault("/", [])
-            for _p in kr.get("params", []):
-                # Dedup: append mentah dulu membesarkan d_targets dengan
-                # entri kembar sebelum dedup (url,param) di shared.py.
-                if _p not in bucket:
-                    bucket.append(_p)
-        except asyncio.TimeoutError:
-            w("Katana crawl backstop hit (75s) — no extra params discovered")
-        except Exception as e:
-            w(f"Katana crawl failed: {str(e)[:80]} — no extra params discovered")
+
+    # WAF/origin — satu implementasi bersama mode 2/5 (dulu blok salinan).
+    await run_waf_origin_phase(target, services, subs, policy=policy)
+
     f, wl = await run_vuln_assault(
         target, services, scan_urls, params, scope_guard, session_manager,
         async_engine, VULN_THREADS, is_turbo, module_flags=module_flags,

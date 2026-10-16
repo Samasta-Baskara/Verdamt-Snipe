@@ -33,6 +33,8 @@ def _get_stage_description(stage_name: str) -> str:
         return "Performing light recon scan..."
     elif "recon intel" in s_lower:
         return "Gathering deep intelligence..."
+    elif "auto-recon" in s_lower:
+        return "Auto-enriching missing recon data..."
     elif "js" in s_lower or "secret" in s_lower:
         return "Scanning JS files for secrets..."
     elif "dork" in s_lower:
@@ -112,6 +114,8 @@ def _get_stage_subtitle(name: str) -> str:
     if "waf" in n and "risk" in n: return "WAF RISK ASSESSMENT"
     if "waf" in n or "origin" in n: return "WAF DETECTION + ORIGIN"
     if "katana" in n or "crawl" in n: return "ENDPOINT CRAWLING"
+    if "auto-recon" in n: return "AUTO ENRICH RECON"
+    if "auto-app" in n: return "AUTO ENRICH APP"
     if "param" in n and "app" in n: return "APP + PARAM DISCOVERY"
     if "param" in n: return "HIDDEN PARAMETERS"
     if "recon light" in n: return "FAST RECON"
@@ -156,10 +160,10 @@ _BANNER_LINES = [
 
 _MODES = {
     "1": ("recon", "RECON", "Passive intel + archive URLs"),
-    "2": ("app", "APP", "WAF bypass + param discovery"),
-    "3": ("assault", "ASSAULT", "Origin IP + vuln scan"),
+    "2": ("app", "APP", "Light crawl + param/API/client-side"),
+    "3": ("assault", "ASSAULT", "Auto-enrich + vuln scan"),
     "4": ("poisoning", "POISONING", "Cache poison + smuggle + bruteforce"),
-    "5": ("full", "FULL", "Recon + app + assault"),
+    "5": ("full", "FULL", "Recon + app + assault + poisoning"),
     "6": ("recon_light", "RECON LIGHT", "Fast crawl + baseline"),
     "7": ("nuclei", "NUCLEI", "Template scan only"),
 }
@@ -297,7 +301,7 @@ _PIPELINE_STAGES_BY_MODE: Dict[str, List[Dict[str, str]]] = {
         {"name": "Subfinder", "status": "pending", "detail": ""},
         {"name": "HTTPX Probing", "status": "pending", "detail": ""},
         {"name": "WAF / Origin Hunt", "status": "pending", "detail": ""},
-        {"name": "Katana Crawler", "status": "pending", "detail": ""},
+        {"name": "Deep Crawl", "status": "pending", "detail": ""},
         {"name": "Parameter Discovery", "status": "pending", "detail": ""},
         {"name": "App Deep Analysis", "status": "pending", "detail": ""},
         {"name": "Finding Verification", "status": "pending", "detail": ""},
@@ -308,24 +312,30 @@ _PIPELINE_STAGES_BY_MODE: Dict[str, List[Dict[str, str]]] = {
         {"name": "Surface Scan", "status": "pending", "detail": ""},
         {"name": "Subfinder", "status": "pending", "detail": ""},
         {"name": "HTTPX Probing", "status": "pending", "detail": ""},
-        {"name": "WAF Risk Assessment", "status": "pending", "detail": ""},
+        {"name": "Auto-Recon", "status": "pending", "detail": ""},
+        {"name": "Katana Crawl", "status": "pending", "detail": ""},
+        {"name": "Auto-App", "status": "pending", "detail": ""},
+        {"name": "WAF / Origin Hunt", "status": "pending", "detail": ""},
         {"name": "Parameter Discovery", "status": "pending", "detail": ""},
         {"name": "Nuclei & Dalfox", "status": "pending", "detail": ""},
         {"name": "Injection Engine", "status": "pending", "detail": ""},
-        {"name": "Smuggling & OOB", "status": "pending", "detail": ""},
+        {"name": "OOB Detector", "status": "pending", "detail": ""},
         {"name": "Finding Verification", "status": "pending", "detail": ""},
+        {"name": "SQLi Data Extraction", "status": "pending", "detail": ""},
         {"name": "Reporter", "status": "pending", "detail": ""},
     ],
     "POISONING": [
         {"name": "Surface Scan", "status": "pending", "detail": ""},
         {"name": "Subfinder", "status": "pending", "detail": ""},
         {"name": "HTTPX Probing", "status": "pending", "detail": ""},
+        {"name": "Seed Crawl", "status": "pending", "detail": ""},
         {"name": "Cache Poisoning", "status": "pending", "detail": ""},
         {"name": "HTTP Smuggling", "status": "pending", "detail": ""},
         {"name": "Directory Bruteforce", "status": "pending", "detail": ""},
         {"name": "Auth Bruteforce", "status": "pending", "detail": ""},
         {"name": "OOB & Payload Flood", "status": "pending", "detail": ""},
         {"name": "Finding Verification", "status": "pending", "detail": ""},
+        {"name": "SQLi Data Extraction", "status": "pending", "detail": ""},
         {"name": "Reporter", "status": "pending", "detail": ""},
     ],
     "FULL": [
@@ -333,9 +343,11 @@ _PIPELINE_STAGES_BY_MODE: Dict[str, List[Dict[str, str]]] = {
         {"name": "Subfinder", "status": "pending", "detail": ""},
         {"name": "HTTPX Probing", "status": "pending", "detail": ""},
         {"name": "Recon Intel", "status": "pending", "detail": ""},
-        {"name": "WAF / Origin Hunt", "status": "pending", "detail": ""},
+        {"name": "Katana Crawl", "status": "pending", "detail": ""},
         {"name": "App & Param Discovery", "status": "pending", "detail": ""},
+        {"name": "WAF / Origin Hunt", "status": "pending", "detail": ""},
         {"name": "Vulnerability Assault", "status": "pending", "detail": ""},
+        {"name": "Poisoning Wave Loop", "status": "pending", "detail": ""},
         {"name": "Finding Verification", "status": "pending", "detail": ""},
         {"name": "SQLi Data Extraction", "status": "pending", "detail": ""},
         {"name": "Reporter", "status": "pending", "detail": ""},

@@ -1066,6 +1066,18 @@ class ScanDashboard:
                 return idx
         return -1
 
+    def mark_stage_status(self, status: str, *keywords):
+        """Force a stage status (mis. fase kondisional = "skipped").
+
+        Only touches pending/active stages so a finished stage is never
+        rewritten retroactively.
+        """
+        with self._lock:
+            idx = self._find_stage_index(tuple(keywords))
+            if idx != -1 and self.pipeline[idx]["status"] in ("pending", "active"):
+                self.pipeline[idx]["status"] = status
+        self._throttled_refresh()
+
     def _update_pipeline_from_phase(self, phase_name: str):
         p_lower = phase_name.lower()
         target_idx = -1
@@ -1086,7 +1098,7 @@ class ScanDashboard:
             elif any(k in p_lower for k in ("origin", "waf risk", "waf detected")):
                 target_idx = self._find_stage_index(("waf", "origin"))
             elif any(k in p_lower for k in ("katana", "crawl", "link")):
-                target_idx = self._find_stage_index(("katana", "crawler", "link"))
+                target_idx = self._find_stage_index(("katana", "crawler", "link", "crawl"))
             elif any(k in p_lower for k in ("browser", "spa")):
                 target_idx = self._find_stage_index(("browser", "spa", "app deep"))
             elif any(k in p_lower for k in ("param", "arjun", "discovery")):
@@ -1098,7 +1110,7 @@ class ScanDashboard:
             elif any(k in p_lower for k in ("nuclei", "dalfox", "assault", "vuln", "injection", "phase 3")):
                 target_idx = self._find_stage_index(("nuclei", "dalfox", "injection", "vulnerability", "assault"))
             elif any(k in p_lower for k in ("poison", "smuggled", "smuggling", "cache", "directory", "auth", "exhaust", "flood")):
-                target_idx = self._find_stage_index(("cache", "smuggling", "directory", "auth", "exhaust", "oob", "flood"))
+                target_idx = self._find_stage_index(("cache", "smuggling", "directory", "auth", "exhaust", "oob", "flood", "poison"))
             elif any(k in p_lower for k in ("sqli", "extract", "phase 4.5")):
                 target_idx = self._find_stage_index(("sqli", "extraction"))
             elif any(k in p_lower for k in ("verify", "confirm", "phase 4")):
@@ -1111,6 +1123,12 @@ class ScanDashboard:
                 if self.pipeline[i]["status"] in ("pending", "active"):
                     self.pipeline[i]["status"] = "completed"
             self.pipeline[target_idx]["status"] = "active"
+            # Hanya satu stage "active": fase yang melompat ke indeks lebih
+            # awal (mis. Seed Crawl setelah POISON MODE) tidak meninggalkan
+            # stage lama menyala.
+            for j in range(target_idx + 1, len(self.pipeline)):
+                if self.pipeline[j]["status"] == "active":
+                    self.pipeline[j]["status"] = "pending"
             if not self.pipeline[target_idx]["detail"]:
                 self.pipeline[target_idx]["detail"] = "running..."
             self.status = "SCANNING"
@@ -1141,7 +1159,7 @@ class ScanDashboard:
             if ep_m and ep_m.group(1):
                 count = int(ep_m.group(1))
                 self.metrics["Endpoints"] = count
-                idx = self._find_stage_index(("katana", "crawler", "link", "recon", "extraction"))
+                idx = self._find_stage_index(("katana", "crawler", "link", "crawl", "recon", "extraction"))
                 if idx != -1:
                     self.pipeline[idx]["detail"] = f"{count} endpoints"
 

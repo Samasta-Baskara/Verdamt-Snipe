@@ -3,7 +3,7 @@ import re
 from typing import Dict, List
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit, parse_qsl, urlparse
 
-from core.ui import G, N, Spinner, p, w
+from core.ui import G, N, Spinner, p, ph, s, w
 
 
 def normalize_takeover_findings(raw_findings):
@@ -227,3 +227,104 @@ def inject_query_payload(url: str, param: str, payload: str) -> str:
     if not replaced:
         updated.append((param, payload))
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(updated), parts.fragment))
+
+
+# ── Shared pipeline phases (mode 3-5) ───────────────────────────────────────
+# Kontrak desain mode: Katana (crawl berat) HANYA milik mode assault-class
+# (3/4/5); mode 2 memakai DeepCrawler sebagai crawl ringan. Dua fase di bawah
+# = satu implementasi bersama — dulu mode 2 dan 3 masing-masing menyimpan
+# salinan blok katana + origin hunt yang perlahan mulai berbeda perilakunya.
+
+def _resolve_active_proxy():
+    """Proxy aktif dari ProxyManager singleton (flag-only: None bila tak diset)."""
+    try:
+        from core.proxy_manager import get_global_proxy_manager
+        pm = get_global_proxy_manager()
+        return pm.current_proxy if pm and pm.current_proxy else None
+    except Exception:
+        return None
+
+
+async def run_katana_phase(seed_url: str, policy=None, proxy=None,
+                           timeout: int = 60) -> Dict:
+    """Fase Katana crawl bersama (mode 3/4/5) — best-effort, tak melempar.
+
+    Selalu mengembalikan ``{"endpoints": [], "params": []}`` saat tool
+    mati/timeout/denied supaya pemanggil bisa melanjutkan pipeline tanpa
+    cabang error sendiri-sendiri.
+    """
+    from core.external_tools import run_katana
+
+    if proxy is None:
+        proxy = _resolve_active_proxy()
+    try:
+        # run_katana = subprocess sync; to_thread supaya event loop (spinner,
+        # task async lain) tidak ikut beku. Backstop +15s di atas timeout
+        # internal — jalur salvage _run_tool yang menggantung tetap terpotong.
+        res = await asyncio.wait_for(
+            asyncio.to_thread(run_katana, seed_url, timeout=timeout,
+                              proxy=proxy, policy=policy),
+            timeout=timeout + 15,
+        )
+        res = res or {"endpoints": [], "params": []}
+        eps = len(res.get("endpoints") or [])
+        prs = len(res.get("params") or [])
+        if eps or prs:
+            s(f"Katana crawl: {eps} endpoint(s), {prs} param(s) found")
+        return res
+    except asyncio.TimeoutError:
+        w(f"Katana crawl timed out after {timeout}s — continuing without crawl data")
+        return {"endpoints": [], "params": []}
+    except Exception as e:
+        w(f"Katana crawl failed: {e.__class__.__name__}: {str(e)[:80]} — continuing without crawl data")
+        return {"endpoints": [], "params": []}
+
+
+async def run_waf_origin_phase(target: str, services, subs=None, policy=None,
+                               timeout: int = 180):
+    """Fase WAF/origin bersama (mode 2/3/5) — no-op bila tidak ada WAF.
+
+    Returns origin_ip atau None. Saat ketemu: ``services[i]["origin_ip"]``
+    diisi + IP di-authorize ke policy — tanpa authorize, ``filter_urls``
+    membuang semua URL IP (out_of_scope_host) di fase berikutnya.
+    """
+    wafs = [name for sv in (services or []) for name in sv.get("waf", [])]
+    if not wafs:
+        return None
+
+    ph("WAF DETECTED: Running origin IP hunt")
+    from modules.waf.origin_hunter import hunt_origin
+
+    hosts: List[str] = []
+    for sv in services or []:
+        host = urlparse(sv.get("url", "")).hostname
+        if host and host not in hosts:
+            hosts.append(host)
+    for sub in subs or []:
+        if sub and sub not in hosts:
+            hosts.append(sub)
+
+    try:
+        origin = await asyncio.wait_for(
+            hunt_origin(target, hosts, proxy=_resolve_active_proxy()),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        w(f"Origin hunt timed out after {timeout}s — scanning through WAF (limited)")
+        return None
+    except Exception as e:
+        w(f"Origin hunt failed: {str(e)[:80]} — scanning through WAF (limited)")
+        return None
+
+    if origin and origin.get("origin_ip"):
+        origin_ip = origin["origin_ip"]
+        print(f"  {G}[+] Origin IP: {origin_ip} ({origin.get('protocol', '?')}){N}")
+        print(f"  {G}[+] Scanning origin directly — WAF by-passed{N}")
+        if policy:
+            policy.authorize_host(origin_ip)
+        for sv in services or []:
+            sv["origin_ip"] = origin_ip
+        return origin_ip
+
+    w("Origin IP not found. Scanning through WAF (limited).")
+    return None
