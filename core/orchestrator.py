@@ -172,6 +172,27 @@ async def async_main():
 
     target_arg, flags, resume_path = parse_scan_args(sys.argv)
 
+    # --opsec-verify: run OPSEC checklist (IP/DNS/WebRTC/proxy health) and
+    # exit. No target needed, no scan. Reuses the same run_full_check used by
+    # `python3 -m core.opsec_check`. Lets you confirm Tor/proxy is up & no
+    # leaks before burning a real scan.
+    if "--opsec-verify" in flags:
+        from core.opsec_check import print_results, run_full_check
+        proxy_arg = None
+        if "--proxy" in flags and flags.index("--proxy") + 1 < len(flags):
+            proxy_arg = flags[flags.index("--proxy") + 1]
+        results = run_full_check(proxy_arg)
+        print_results(results)
+        # Exit codes for scripting: 0=hidden+safe, 2=real leak / proxy down,
+        # 3=direct (no proxy — deliberate, but IP is exposed) / inconclusive.
+        if results.get("safe"):
+            sys.exit(0)
+        leaky = any(
+            k in iss for iss in results.get("issues", [])
+            for k in ("IP LEAK", "DNS LEAK", "PROXY DOWN")
+        )
+        sys.exit(2 if leaky else 3)
+
     # Bare --resume / -r without a path → default to the target's state file
     if not resume_path and "--resume" in flags:
         if not target_arg:

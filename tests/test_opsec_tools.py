@@ -167,10 +167,31 @@ class TestOpsecChecks(unittest.TestCase):
         self.assertFalse(result["ip_leak"])  # different IPs = no leak
 
     def test_check_ip_same_ip_flagged_as_leak(self):
-        same = MagicMock(returncode=0, stdout="1.1.1.1\n")
+        same = MagicMock(return_value=MagicMock(returncode=0, stdout="1.1.1.1\n"))
         with patch("core.opsec_check.subprocess.run", same):
             result = opsec_check.check_ip(proxy="socks5://p:9050")
         self.assertTrue(result["ip_leak"])
+
+    def test_check_ip_no_proxy_is_unknown_not_leak(self):
+        # No proxy -> nothing to compare. Must be None (unknown), NOT a
+        # false "leak" (that was the old behavior: ip_leak defaulted True).
+        with patch("core.opsec_check.subprocess.run",
+                   MagicMock(returncode=0, stdout="9.9.9.9\n")):
+            result = opsec_check.check_ip(proxy=None)
+        self.assertFalse(result["proxy_configured"])
+        self.assertIsNone(result["ip_leak"])  # direct by design, not a leak
+
+    def test_check_ip_proxy_set_but_unretrievable_is_unknown(self):
+        # Proxy configured but proxy-IP query fails (rc!=0) -> unknown,
+        # never a false "leak".
+        runner = MagicMock(side_effect=[
+            MagicMock(returncode=0, stdout="1.1.1.1\n"),   # direct ok
+            MagicMock(returncode=1, stdout=""),            # proxy query fails
+        ])
+        with patch("core.opsec_check.subprocess.run", runner):
+            result = opsec_check.check_ip(proxy="socks5://p:9050")
+        self.assertTrue(result["proxy_configured"])
+        self.assertIsNone(result["ip_leak"])
 
     def test_check_dns_local_vs_doh(self):
         # Patch doh at the function level: check_dns re-imports it per call,
@@ -233,6 +254,40 @@ class TestOpsecChecks(unittest.TestCase):
             results = opsec_check.run_full_check()
         self.assertFalse(results["proxy_reachable"])
         self.assertTrue(any("PROXY DOWN" in i for i in results["issues"]))
+
+    def test_run_full_check_direct_is_not_safe(self):
+        """No proxy -> IP asli keluar. Bukan 'leak' (deliberate) tapi juga
+        bukan 'hidden' — safe harus False."""
+        with patch("core.opsec_check.subprocess.run",
+                   return_value=MagicMock(returncode=0, stdout="9.9.9.9\n")), \
+             patch("core.opsec_check.socket.gethostbyname_ex",
+                   return_value=("x", [], ["9.9.9.9"])), \
+             patch("core.doh_resolve.doh_resolve", return_value=["9.9.9.9"]), \
+             patch("os.path.expanduser", return_value="/nonexistent"), \
+             patch("core.proxy_manager.resolve_proxy", return_value=None), \
+             patch.dict("os.environ", {}, clear=True):
+            results = opsec_check.run_full_check()
+        self.assertIsNone(results["active_proxy"])
+        self.assertFalse(results["safe"])  # direct = exposed, not hidden
+
+    def test_run_full_check_routed_proxy_is_safe(self):
+        """Proxy bedain egress IP + gak ada issue lain -> safe True."""
+        runner = MagicMock(side_effect=[
+            MagicMock(returncode=0, stdout="1.1.1.1\n"),  # direct
+            MagicMock(returncode=0, stdout="2.2.2.2\n"),  # proxy egress
+        ])
+        with patch("core.opsec_check.subprocess.run", runner), \
+             patch("core.opsec_check.socket.gethostbyname_ex",
+                   return_value=("x", [], ["2.2.2.2"])), \
+             patch("core.doh_resolve.doh_resolve", return_value=["2.2.2.2"]), \
+             patch("core.opsec_check.check_websocket_leak",
+                   return_value={"webRTC_risk": False, "note": "disabled"}), \
+             patch("os.path.expanduser", return_value="/nonexistent"), \
+             patch("core.proxy_manager.verify_proxy_reachable", return_value=True), \
+             patch.dict("os.environ", {"VERDAMT_PROXY": "socks5://p:9050"}):
+            results = opsec_check.run_full_check()
+        self.assertFalse(results["ip"]["ip_leak"])  # different = routing
+        self.assertTrue(results["safe"])
 
 
 class TestVerifyProxyReachable(unittest.TestCase):

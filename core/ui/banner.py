@@ -88,6 +88,7 @@ _HELP_GROUPS = [
         ("--allowed-hosts <h,h>", "Extra exact hosts or IPs kept in scope"),
         ("--allowed-ports <p,p>", "Ports allowed for active probes (80,443)"),
         ("--dry-run", "Authorise and log every request, send nothing"),
+        ("--opsec-verify", "Run IP/DNS/WebRTC/proxy-health check, then exit"),
     ]),
     ("AUTH & HEADERS", [
         ("--bearer <val>", "Bearer token: literal, env:VAR or file:PATH"),

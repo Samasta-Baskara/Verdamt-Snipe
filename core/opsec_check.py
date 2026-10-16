@@ -13,8 +13,16 @@ import sys
 
 
 def check_ip(proxy: str | None = None) -> dict:
-    """Check current IP address (direct vs through proxy)."""
-    result = {"direct_ip": None, "proxy_ip": None, "ip_leak": True}
+    """Check current IP address (direct vs through proxy).
+
+    A working proxy MUST yield a different egress IP than the direct one —
+    that difference is what proves the proxy actually routes traffic. If
+    both match, the proxy is transparent/broken and traffic leaves from the
+    real IP (leak). With no proxy configured there is nothing to compare:
+    scanning direct is a deliberate choice, not a leak.
+    """
+    result = {"direct_ip": None, "proxy_ip": None, "ip_leak": None,
+              "proxy_configured": bool(proxy)}
 
     # Direct IP
     try:
@@ -39,9 +47,11 @@ def check_ip(proxy: str | None = None) -> dict:
         except Exception:
             pass
 
-    # Check for leak
-    if result["direct_ip"] and result["proxy_ip"]:
-        result["ip_leak"] = result["direct_ip"] == result["proxy_ip"]
+        # Leak only when a proxy is configured AND its egress equals the
+        # direct IP (proxy not routing). Incomplete data -> None (unknown),
+        # never a false "leak".
+        if result["direct_ip"] and result["proxy_ip"]:
+            result["ip_leak"] = result["direct_ip"] == result["proxy_ip"]
 
     return result
 
@@ -117,8 +127,8 @@ def run_full_check(proxy: str | None = None) -> dict:
     from core.proxy_manager import resolve_proxy, verify_proxy_reachable
     active_proxy = proxy or resolve_proxy()
     results = {
-        "ip": check_ip(proxy),
-        "dns": check_dns(proxy),
+        "ip": check_ip(active_proxy),
+        "dns": check_dns(active_proxy),
         "webrtc": check_websocket_leak(),
         "env": check_env_leak() if not proxy else {"env_set": True, "vars": {"VERDAMT_PROXY": proxy}},
         # Pre-flight proxy health: True when no proxy (scanning direct on
@@ -130,8 +140,10 @@ def run_full_check(proxy: str | None = None) -> dict:
 
     # Overall status
     issues = []
-    if results["ip"]["ip_leak"]:
-        issues.append("IP LEAK: Direct IP exposed (not behind proxy)")
+    if results["ip"]["ip_leak"] is True:
+        issues.append("IP LEAK: Proxy is NOT routing — traffic leaves from your real IP")
+    if results["ip"]["proxy_configured"] and results["ip"]["ip_leak"] is None:
+        issues.append("IP CHECK INCONCLUSIVE: proxy set but egress IP could not be retrieved (proxy down?)")
     if results["dns"]["dns_leak"]:
         issues.append("DNS LEAK: DNS queries visible to ISP")
     if results["webrtc"]["webRTC_risk"]:
@@ -140,7 +152,10 @@ def run_full_check(proxy: str | None = None) -> dict:
         issues.append(f"PROXY DOWN: {active_proxy} not answering — requests will fail (no leak, but scan will find nothing)")
 
     results["issues"] = issues
-    results["safe"] = len(issues) == 0
+    # "safe" == no anonymity issues. Scanning direct (no proxy) is NOT a
+    # "leak" (it's deliberate) but it is also NOT "hidden" — so it is not
+    # safe. Only a routed proxy with no other issues counts as safe.
+    results["safe"] = len(issues) == 0 and bool(active_proxy)
 
     return results
 
@@ -156,10 +171,14 @@ def print_results(results: dict):
     print("\n  [IP ADDRESS]")
     print(f"  Direct IP:  {ip['direct_ip'] or 'N/A'}")
     print(f"  Proxy IP:   {ip['proxy_ip'] or 'N/A'}")
-    if ip["ip_leak"]:
-        print("  Status:     !! IP LEAK DETECTED !!")
+    if ip["ip_leak"] is True:
+        print("  Status:     !! IP LEAK — proxy not routing, traffic leaves from real IP !!")
+    elif ip["ip_leak"] is False:
+        print("  Status:     OK — egress differs from direct IP (proxy is routing)")
+    elif ip["proxy_configured"]:
+        print("  Status:     ?? INCONCLUSIVE — proxy set but egress IP not retrieved")
     else:
-        print("  Status:     OK — IP hidden behind proxy")
+        print("  Status:     DIRECT — no proxy configured, traffic leaves from real IP")
 
     # DNS Check
     dns = results["dns"]
