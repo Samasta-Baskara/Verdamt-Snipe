@@ -106,29 +106,6 @@ class RateLimiter:
 
         return actual_delay
 
-    def wait(self, hostname):
-        """Sync version for non-async callers (recon scanner, etc)."""
-        if not hostname:
-            hostname = "default"
-
-        with self._lock:
-            if self._host_blocked[hostname]:
-                return None
-
-            delay = max(self.global_delay, self._host_delay[hostname])
-            last_request = self._host_last_request.get(hostname, 0)
-            elapsed = time.time() - last_request
-            remaining = max(delay - elapsed, 0.0)
-            actual_delay = max(remaining + random.uniform(-self.jitter, self.jitter), 0.0)
-
-        if actual_delay > 0:
-            time.sleep(actual_delay)
-
-        with self._lock:
-            self._host_last_request[hostname] = time.time()
-
-        return actual_delay
-
     # Response feedback with sliding window
 
     def report_response(self, hostname, status_code, response_body=None):

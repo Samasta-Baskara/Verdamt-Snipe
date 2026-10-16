@@ -55,7 +55,7 @@ async def run_recon_intel(target: str, services, subs, base_urls, scope_guard,
 
     async def _run_takeovers():
         try:
-            raw = await asyncio.to_thread(TakeoverChecker(subs).run)
+            raw = await TakeoverChecker(subs).run()
             return normalize_takeover_findings(raw)
         except Exception:
             return []
