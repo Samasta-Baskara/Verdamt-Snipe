@@ -17,9 +17,7 @@ class AdaptivePacingSystem:
 
     def __init__(self, initial_delay: float = 0.1):
         self.current_delay = initial_delay
-        self.min_delay = 0.01
         self.max_delay = 5.0
-        self.latency_history = []
 
     async def wait(self):
         if self.current_delay > 0:

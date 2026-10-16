@@ -93,7 +93,6 @@ class CurlCffiSession:
         )
         if proxy:
             self._session.proxies = {"http": proxy, "https": proxy}
-        self._target = target
 
     def request(
         self,
@@ -176,7 +175,6 @@ class CurlCffiAsyncSession:
         )
         if proxy:
             self._session.proxies = {"http": proxy, "https": proxy}
-        self._target = target
 
     async def request(
         self,

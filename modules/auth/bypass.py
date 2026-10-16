@@ -1,6 +1,5 @@
 import json
 import random
-import unicodedata
 import time
 import base64
 import re
@@ -401,75 +400,6 @@ class WAFBypass:
             "Forwarded": f"for={fp};proto=https;by={fp}",
             "Via": random.choice(["1.1 google", "1.1 varnish", "1.1 cloudflare"]),
         }
-
-    @staticmethod
-    def unicode_normalize(payload: str) -> List[str]:
-        """Generate Unicode normalization bypass variants.
-        
-        Techniques:
-        1. Fullwidth characters (U+FF01–U+FF5E)
-        2. Homoglyph substitution (Cyrillic/Greek lookalikes)
-        3. NFD decomposition
-        4. Combining character injection
-        5. Invisible characters
-        """
-        variants = [payload]
-        
-        # 1. Fullwidth ASCII (U+FF01 maps to '!', U+FF21 maps to 'A', etc.)
-        fullwidth_map = {}
-        for i in range(0x21, 0x7F):  # ! to ~
-            fullwidth_map[chr(i)] = chr(i + 0xFEE0)
-        fw = "".join(fullwidth_map.get(c, c) for c in payload)
-        if fw != payload:
-            variants.append(fw)
-        
-        # 2. Homoglyph substitution (Latin → Cyrillic/Greek lookalikes)
-        homoglyphs = {
-            'a': '\u0430', 'c': '\u0441', 'e': '\u0435', 'o': '\u043e',
-            'p': '\u0440', 's': '\u0455', 'x': '\u0445', 'y': '\u0443',
-            'A': '\u0410', 'B': '\u0412', 'C': '\u0421', 'E': '\u0415',
-            'H': '\u041d', 'K': '\u041a', 'M': '\u041c', 'O': '\u041e',
-            'P': '\u0420', 'S': '\u0405', 'T': '\u0422', 'X': '\u0425',
-        }
-        homo = "".join(homoglyphs.get(c, c) if random.random() > 0.5 else c for c in payload)
-        if homo != payload:
-            variants.append(homo)
-        
-        # 3. NFD decomposition (é → e + combining accent)
-        nfd = unicodedata.normalize('NFD', payload)
-        if nfd != payload:
-            variants.append(nfd)
-        
-        # 4. Zero-width character injection
-        zwc_chars = ['\u200b', '\u200c', '\u200d', '\ufeff']  # ZWS, ZWNJ, ZWJ, BOM
-        zwc = ""
-        for c in payload:
-            zwc += c
-            if c.isalpha() and random.random() > 0.7:
-                zwc += random.choice(zwc_chars)
-        if zwc != payload:
-            variants.append(zwc)
-        
-        # 5. Combining characters (add combining marks to letters)
-        combining = ""
-        for c in payload:
-            combining += c
-            if c.isalpha() and random.random() > 0.8:
-                combining += '\u0300'  # Combining grave accent
-        if combining != payload:
-            variants.append(combining)
-        
-        # 6. Mixed script: selectively replace some chars
-        selective = ""
-        for c in payload:
-            if c.lower() in homoglyphs and random.random() > 0.6:
-                selective += homoglyphs[c.lower()]
-            else:
-                selective += c
-        if selective != payload:
-            variants.append(selective)
-        
-        return list(set(v for v in variants if v.strip()))
 
     @staticmethod
     def h2_smuggle_check(url: str, policy=None) -> Dict:

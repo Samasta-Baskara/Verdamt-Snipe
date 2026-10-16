@@ -3,7 +3,7 @@ from typing import Dict, Set, Any
 from urllib.parse import urlparse
 
 try:
-    from playwright.async_api import async_playwright, Request, Response, BrowserContext, Page
+    from playwright.async_api import async_playwright, Request
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
@@ -11,7 +11,7 @@ except ImportError:
     # survives when playwright is absent — the original fallback crashed
     # with NameError at `request: Request`.
     from typing import Any as _Any
-    async_playwright = Request = Response = BrowserContext = Page = _Any
+    async_playwright = Request = _Any
 
 from core.state import SessionManager
 from core.ui import ph, i, p, s, w, G, Y, N, W, C

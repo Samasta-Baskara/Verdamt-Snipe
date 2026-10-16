@@ -53,17 +53,6 @@ def _find_tool(name: str) -> Optional[str]:
     return None
 
 
-def check_tools() -> Dict[str, Optional[str]]:
-    """Check availability of all supported external tools.
-    Returns dict mapping tool name → absolute path or None.
-    """
-    tools = ["subfinder", "httpx", "gau", "katana", "waybackurls", "nuclei", "dalfox", "ffuf", "gf"]
-    result = {}
-    for t in tools:
-        result[t] = _find_tool(t)
-    return result
-
-
 def _tool_proxy(proxy: Optional[str]) -> Optional[str]:
     """Normalisasi proxy URL untuk tool berbasis Go.
 
@@ -107,18 +96,6 @@ def _uncounted_tool_allowed(policy: Optional[ScanPolicy], tool_name: str) -> boo
           f"(<{UNCOUNTED_TOOL_FLOOR} budget floor)")
         return False
     return True
-
-
-def print_tool_status():
-    """Print a formatted table showing which tools are available."""
-    status = check_tools()
-    rows = []
-    for name, path in status.items():
-        if path:
-            rows.append([f"{G}✓{N}", f"{W}{name}{N}", f"{GY}{path}{N}"])
-        else:
-            rows.append([f"{R}✗{N}", f"{GY}{name}{N}", f"{R}not found{N}"])
-    draw_table(["", "TOOL", "PATH"], rows, title="External Tool Status")
 
 
 def _run_tool(tool_name: str, args: List[str], timeout: int = 120,

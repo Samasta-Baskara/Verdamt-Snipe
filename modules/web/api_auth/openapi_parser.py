@@ -66,7 +66,7 @@ class OpenAPIParser:
                 request_body = spec.get("requestBody", {})
                 if isinstance(request_body, dict):
                     content_map = request_body.get("content", {})
-                    for media_type, media_spec in content_map.items():
+                    for _, media_spec in content_map.items():
                         schema = media_spec.get("schema", {})
                         param_list.extend(self._extract_schema_keys(schema))
 

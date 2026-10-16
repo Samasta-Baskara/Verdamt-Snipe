@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from urllib.parse import urlparse
 
 try:
-    from playwright.async_api import async_playwright
+    import playwright.async_api  # availability probe — used to gate browser features
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
@@ -56,15 +56,6 @@ class ClickjackingInspector:
                     content_type="text/html",
                     body=iframe_poc_html
                 ))
-
-                frame_loaded = False
-
-                def handle_frame_attached(frame):
-                    nonlocal frame_loaded
-                    if self.domain in urlparse(frame.url).netloc:
-                        frame_loaded = True
-
-                page.on("frameattached", handle_frame_attached)
 
                 try:
                     await page.goto(f"{attacker_origin}/frame_test.html", wait_until="domcontentloaded", timeout=4000)

@@ -322,7 +322,7 @@ def interactive_mode_select(target, settings):
             if not selected_mode:
                 w("Select a mode first [1-5]")
                 continue
-            mode_id, mode_name, _ = _MODES[selected_mode]
+            mode_id = _MODES[selected_mode][0]
             draw_confirm_bar(mode_id, target, settings)
             confirm = input().strip().lower()
             if confirm == 'n':

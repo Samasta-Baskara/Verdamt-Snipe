@@ -1,4 +1,9 @@
-"""styles — verbatim split from ui.py (no logic changes)."""
+"""styles — verbatim split from ui.py (no logic changes).
+
+The import block below doubles as the legacy re-export surface consumed by
+core/ui/__init__ (os, Align, Progress, ...); ruff must not strip it.
+"""
+# ruff: noqa: F401
 import os
 import sys
 import time

@@ -5,26 +5,20 @@ import sys
 import time
 import re
 import math
-import random
 import threading
 import collections
 from typing import Dict, List, Optional, Tuple
 
-from rich.console import Console, Group
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
 from rich.live import Live
-from rich.layout import Layout
-from rich.align import Align
-from rich.columns import Columns
-from rich.rule import Rule
 from rich.cells import cell_len
 from rich import box
 
 from .banner import _PIPELINE_STAGES_BY_MODE
-from .styles import C, G, R, Y, _CHECK, _DIAMOND, _TARGET, console, strip_ansi
+from .styles import C, G, R, Y, _DIAMOND, _TARGET, console, strip_ansi
 from .styles import (D_BG, D_PANEL, D_ELEV, D_EMERALD, D_TEAL, D_GOLD, D_GOLD_SOFT,
                      D_TEXT, D_DIM, D_INFO, D_WARN, D_CRIT, D_BORDER)
 
@@ -1789,7 +1783,7 @@ def draw_box(title, lines, color=None):
     console.print(panel)
 
 
-def draw_table(headers, rows, padding=2, title=None):
+def draw_table(headers, rows, title=None):
     """Animated table rendering with premium styling.
 
     While a ScanDashboard is active the rows are streamed into the Recent

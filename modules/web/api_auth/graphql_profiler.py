@@ -32,11 +32,6 @@ INTROSPECTION_QUERY = {
     """
 }
 
-# Circular depth query DoS payload
-CIRCULAR_DEPTH_QUERY = {
-    "query": "query { __schema { queryType { name queryType { name queryType { name } } } } }"
-}
-
 # Batching query DoS payload
 BATCH_QUERY = [
     {"query": "query { __typename }"},
