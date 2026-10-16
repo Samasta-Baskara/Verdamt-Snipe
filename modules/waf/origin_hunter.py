@@ -187,7 +187,7 @@ async def _run_subprocess(cmd: List[str], timeout: float):
 
 
 async def _curl(url: str, headers: dict = None, host: str = None,
-                timeout: int = 10, follow: bool = True) -> dict:
+                timeout: int = 10, follow: bool = True, data: str = None) -> dict:
     """Async curl wrapper with full response capture."""
     cmd = ["curl", "-s", "-k", "-i",
            "--connect-timeout", str(min(timeout, 10)),
@@ -199,6 +199,10 @@ async def _curl(url: str, headers: dict = None, host: str = None,
             cmd.extend(["-H", f"{k}: {v}"])
     if host:
         cmd.extend(["-H", f"Host: {host}"])
+    if data is not None:
+        # --data-raw switches curl to POST automatically; content-type
+        # stays the caller's job via headers.
+        cmd.extend(["--data-raw", data])
     if _ACTIVE_PROXY:
         cmd.extend(["--proxy", _ACTIVE_PROXY])
     cmd.append(url)
@@ -744,7 +748,8 @@ async def _method_wordpress_pingback(domain: str) -> List[dict]:
     r = await _curl(
         f"https://{domain}/xmlrpc.php",
         headers={"Content-Type": "text/xml"},
-        timeout=10
+        timeout=10,
+        data=xml_body,
     )
     # Even if pingback fails, the outbound request reveals the IP
     # Check interactsh for callbacks (would need OOB detector integration)
