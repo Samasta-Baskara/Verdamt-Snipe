@@ -58,3 +58,6 @@ source = ["core", "modules", "reports", "runners", "verd"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+# Floor set at the measured 2026-10-17 baseline (42%) — coverage can only
+# go up from here; lowering this number requires an explicit commit.
+fail_under = 42

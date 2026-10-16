@@ -26,10 +26,12 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Check syntax
         run: python -m compileall -q verd.py core modules reports runners tests
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+      - name: Run unit tests (coverage gate via pyproject fail_under)
+        run: |
+          python -m coverage run -m unittest discover -s tests
+          python -m coverage report

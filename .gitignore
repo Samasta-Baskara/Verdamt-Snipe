@@ -13,6 +13,7 @@ output/
 scratch/
 
 .pytest_cache/
+.coverage
 .mypy_cache/
 .ruff_cache/
 

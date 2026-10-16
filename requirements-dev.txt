@@ -1,0 +1,5 @@
+# Development toolchain — pinned, matching pyproject [tool.ruff]/[tool.coverage].
+# Runtime dependencies live in requirements.txt.
+coverage==7.16.2
+pyflakes==3.4.0
+ruff==0.17.1
