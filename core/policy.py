@@ -192,6 +192,15 @@ class ScanPolicy:
             canonical = self.canonical_url(url, base_url=base_url)
             if canonical:
                 kept.add(canonical)
+            else:
+                # Audit alasan pembuangan: dulu URL di luar scope / port non
+                # 80-443 hilang SENYAP dari target nuclei/dalfox/katana —
+                # scan terlihat normal padahal menerima 0 target.
+                probe = urljoin(base_url, str(url)) if base_url else str(url)
+                reason = self.check_url(probe).reason or "unroutable"
+                AuditLogger.get_instance().log_request(
+                    url=str(url), method="FILTER", allowed=False,
+                    reason=f"filter_urls:{reason}", dry_run=self.dry_run)
         return sorted(kept)
 
     def clamp_timeout(self, timeout: Optional[float]) -> float:

@@ -741,6 +741,11 @@ class AsyncNetworkEngine:
         self.client = None
         self._rebuild_lock = asyncio.Lock()
         self._request_semaphore = asyncio.Semaphore(self.max_connections)
+        # Origin-IP passthrough (diisi runners/vuln_assault saat WAF-bypass):
+        # URL sudah ber-IP tapi vhost asli tetap dibutuhkan. Overrides per-URL
+        # presisi; map per-IP fallback untuk URL yang tak terdaftar.
+        self.origin_host_overrides: dict = {}
+        self.origin_host_map: dict = {}
 
         # Check if curl_cffi is available to set the default _use_curl_cffi flag
         try:
@@ -760,13 +765,21 @@ class AsyncNetworkEngine:
         self.circuit_breaker = CircuitBreaker()
 
     def _build_client(self, proxy: Optional[str]):
-        """Builds a new HTTP client with the given proxy (no old session closing)."""
-        self._active_proxy = proxy
+        """Builds a new HTTP client with the given proxy (no old session closing).
+
+        All three transport fields are swapped together at the end (single
+        synchronous block, no awaits) so a concurrent reader on the event
+        loop never observes a half-built state — previously the curl path
+        left a stale httpx client behind and vice versa.
+        """
+        use_curl = False
+        curl_session = None
+        httpx_client = None
 
         try:
             from core.curl_cffi_transport import CurlCffiAsyncSession, CURL_CFFI_AVAILABLE
             if CURL_CFFI_AVAILABLE:
-                self._curl_cffi_session = CurlCffiAsyncSession(
+                curl_session = CurlCffiAsyncSession(
                     impersonate=self.impersonate,
                     browser=self.browser or "chrome",
                     timeout=30,
@@ -777,40 +790,47 @@ class AsyncNetworkEngine:
                     follow_redirects=self.policy is None,
                     proxy=proxy,
                 )
-                self._use_curl_cffi = True
-                return
+                use_curl = True
         except ImportError:
             pass
 
-        self._use_curl_cffi = False
-        self.limits = httpx.Limits(
-            max_keepalive_connections=self.max_connections,
-            max_connections=self.max_connections,
-        )
-        self.client = httpx.AsyncClient(
-            http2=True, verify=False, follow_redirects=self.policy is None,
-            limits=self.limits, timeout=httpx.Timeout(10.0),
-            proxy=proxy,
-        )
+        if not use_curl:
+            self.limits = httpx.Limits(
+                max_keepalive_connections=self.max_connections,
+                max_connections=self.max_connections,
+            )
+            httpx_client = httpx.AsyncClient(
+                http2=True, verify=False, follow_redirects=self.policy is None,
+                limits=self.limits, timeout=httpx.Timeout(10.0),
+                proxy=proxy,
+            )
+
+        self._active_proxy = proxy
+        self._use_curl_cffi = use_curl
+        self._curl_cffi_session = curl_session
+        self.client = httpx_client
 
     async def _rebuild_client_with_proxy(self, proxy: Optional[str]):
-        """Closes existing sessions and rebuilds the HTTP client with the new proxy."""
-        if self._use_curl_cffi and self._curl_cffi_session:
-            old = self._curl_cffi_session
-            self._curl_cffi_session = None
-            try:
-                await old.close()
-            except Exception:
-                pass
-        elif self.client:
-            old = self.client
-            self.client = None
-            try:
-                await old.aclose()
-            except Exception:
-                pass
+        """Swaps in a new client for the proxy, then closes the old one.
 
+        Order matters: the old implementation nulled self.client /
+        _curl_cffi_session BEFORE building the replacement, opening a window
+        where concurrent ahttp_send readers hit None.request → AttributeError
+        → request silently lost as status 0. Build-and-swap first, close after.
+        """
+        old_curl = self._curl_cffi_session
+        old_httpx = self.client
         self._build_client(proxy)
+        if old_curl is not None and old_curl is not self._curl_cffi_session:
+            try:
+                await old_curl.close()
+            except Exception:
+                pass
+        if old_httpx is not None and old_httpx is not self.client:
+            try:
+                await old_httpx.aclose()
+            except Exception:
+                pass
 
     async def ahttp_send(self, url: str, method: str = "GET", headers: dict = None,
                           data=None, json=None, bypass: bool = False,
@@ -887,6 +907,13 @@ class AsyncNetworkEngine:
                 "status": 0, "error": "concurrency_budget_exhausted",
                 "time": 0, "waf": [], "body": "", "headers": {},
             }
+        except BaseException:
+            # Cancellation/crash while queueing: without this the host slot
+            # acquired above leaks permanently — every later request to this
+            # host queues behind a phantom slot (module _bounded timeouts
+            # cancel tasks exactly here).
+            self.host_limiter.release(hostname, 0)
+            raise
 
         status = 0
         start_time = time.time()
@@ -910,6 +937,15 @@ class AsyncNetworkEngine:
 
             if state_context:
                 state_context.inject_auth(url, req_headers)
+
+            # Origin-IP override: semua modul async (injection, jwt, crlf,
+            # host, idor, stored_xss, oob) otomatis dapat Host vhost asli —
+            # dulu hanya nuclei/dalfox yang dipasangi Host manual, sisanya
+            # menembak default vhost (Host: <IP>) = false negative senyap.
+            origin_host = (self.origin_host_overrides.get(url)
+                           or self.origin_host_map.get(hostname))
+            if origin_host and not any(k.lower() == "host" for k in req_headers):
+                req_headers["Host"] = origin_host
 
             if bypass:
                 req_headers.update(WAFBypass.get_bypass_headers())
@@ -964,8 +1000,14 @@ class AsyncNetworkEngine:
                     pass
             status = response.get("status", 0)
 
-            # Update circuit breaker + pacing based on response
-            if status in (403, 429):
+            # Update circuit breaker + pacing based on response.
+            # HANYA 429 = rate limit nyata. 403 adalah respons aplikasi
+            # normal saat scanner menyentuh path terproteksi (/admin, payload
+            # diblokir WAF) — dulu tiap 403 ikut record_failure + pacing
+            # backoff, sehingga 5x 403 membuka circuit 30-300s dan SELURUH
+            # request host itu jadi status:0 "circuit_open" (scan macet
+            # total di target ber-WAF/auth).
+            if status == 429:
                 self.circuit_breaker.record_failure(hostname, status)
                 self.rate_limiter.trigger_backoff()
                 is_error = True

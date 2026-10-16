@@ -4,7 +4,7 @@ Moved VERBATIM out of verd.py (no logic changes): flag grammar lives
 here so verd.py stays a thin entry point (`verd:main` in pyproject).
 """
 #!/usr/bin/env python3
-import sys, time, asyncio, os, re
+import sys, time, asyncio, os, re, ipaddress
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qsl, urlencode
 from pathlib import Path
@@ -386,8 +386,30 @@ def _active_proxy():
 
 
 async def phase_verify_report(target, findings, services, subs, scan_urls, target_wafs, t0, mode, async_engine=None, session_manager=None):
+    # Ref ke list milik caller (all_findings) — di-mutasi di akhir agar hasil
+    # verify + ekstraksi ikut tersimpan ke .state saat save_project_state().
+    caller_findings = findings
     if findings:
         ph("Phase 4: Finding Verification")
+
+        # Dedup SEBELUM verify: temuan kembar (nuclei ↔ injection ↔ dalfox)
+        # dulu diverifikasi 2× — 2 request per duplikat membakar budget yang
+        # sering sudah menipis. (Dedup Phase 5 tetap jadi jaring pengaman.)
+        _seen = set()
+        _deduped = []
+        for f in findings:
+            if not isinstance(f, dict):
+                continue
+            key = (f.get("url", ""), f.get("type", ""), f.get("title", ""),
+                   f.get("detail", "")[:120])
+            if key not in _seen:
+                _seen.add(key)
+                _deduped.append(f)
+        _dropped = len(findings) - len(_deduped)
+        if _dropped:
+            i(f"Deduplicated {_dropped} finding(s) before verification")
+        findings = _deduped
+
         spin = Spinner("Confirming vulnerabilities...")
         spin.start()
 
@@ -409,8 +431,17 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
             """Verify a single finding in thread pool or async."""
             try:
                 # POST-body re-verify (xxe_file) hanya di mode 4 (poisoning).
-                if await VulnVerifier.verify(f, async_engine, session_manager,
-                                             allow_post=(mode == "poisoning")):
+                result = await VulnVerifier.verify(f, async_engine, session_manager,
+                                                   allow_post=(mode == "poisoning"))
+                if result is None:
+                    # Probe tak terkirim (budget habis / rate-limit / circuit
+                    # open) — gagal kirim BUKAN bukti salah. Pertahankan
+                    # temuan dengan confidence scan-time + peringatan, jangan
+                    # dibuang senyap seperti perilaku lama.
+                    w(f"verify untestable for {f.get('title','?')[:40]} "
+                      "(probe not dispatched) — keeping finding as-is")
+                    return f
+                if result:
                     _audit_confirmed(f)
                     return f
             except Exception as e:
@@ -422,9 +453,9 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
         # Verify all findings in parallel
         tasks = [_verify(f) for f in findings]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        verified = [r for r in results if r is not None and not isinstance(r, Exception)]
+        verified = [r for r in results if r is not None and not isinstance(r, BaseException)]
         for f in verified:
-            s(f"Confirmed: {G}{f['title']}{N}")
+            s(f"Confirmed: {G}{f.get('title', '?')}{N}")
         spin.stop()
         findings = verified
 
@@ -448,7 +479,10 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
                 try:
                     # Extract param name robustly
                     param_name = None
-                    parsed_url = urlparse(sqli_f["url"])
+                    sqli_url = sqli_f.get("url") or ""
+                    if not sqli_url:
+                        continue
+                    parsed_url = urlparse(sqli_url)
                     params = parse_qsl(parsed_url.query, keep_blank_values=True)
                     if params:
                         for k, v in params:
@@ -479,8 +513,8 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
                     extracted = await extractor.extract_all(clean_url, param_name)
                     if extracted:
                         for ex in extracted:
-                            s(f"{R}SQLi Extracted:{N} {W}{ex['detail']}{N}")
-                        findings.extend(extracted)
+                            s(f"{R}SQLi Extracted:{N} {W}{ex.get('detail', '')}{N}")
+                        findings.extend([ex for ex in extracted if isinstance(ex, dict)])
                 except Exception as e:
                     w(f"SQLi extraction error: {str(e)[:80]}")
 
@@ -493,13 +527,34 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
             seen.add(key)
             unique.append(f)
     unique.sort(key=lambda f: finding_cvss(f)["s"], reverse=True)
+    # Tulis hasil akhir (verified + extracted, terdedup) ke list milik caller
+    # — dulu hanya local rebind, .state tak pernah menyimpan hasil verify dan
+    # resume mengulang Phase 4 penuh.
+    caller_findings[:] = unique
     dur = time.time() - t0
     # Attach exact recorded requests (audit trail) so the report's PoC is a
     # real replay instead of a generic template when the jsonl has the URL.
+    # Best-effort: a missing/unreadable audit file must not kill the report.
     from core.audit import AuditLogger, inject_replay_curls
-    inject_replay_curls(unique, AuditLogger.get_instance().log_path)
+    try:
+        inject_replay_curls(unique, AuditLogger.get_instance().log_path)
+    except Exception as e:
+        w(f"Replay-curl injection failed (report will use generic PoC): {e}")
     rep = ReportEngine(target, unique, services, subs, scan_urls, dur, target_wafs, VERSION, AUTHOR, mode)
-    rep.save_html(); rep.save_pdf(); rep.print_summary()
+    # Each artifact separately guarded — one broken renderer (html/pdf) must
+    # not prevent the others nor the console summary from running.
+    try:
+        rep.save_html()
+    except Exception as e:
+        w(f"HTML report generation failed: {e.__class__.__name__}: {str(e)[:120]}")
+    try:
+        rep.save_pdf()
+    except Exception as e:
+        w(f"PDF report generation failed: {e.__class__.__name__}: {str(e)[:120]}")
+    try:
+        rep.print_summary()
+    except Exception as e:
+        w(f"Console summary failed: {e.__class__.__name__}: {str(e)[:120]}")
     print(f"\n  {M}[ {chr(10086)} ]{N} {B}{W}SCAN COMPLETE: {target.upper()}{N}")
     print(f"  {D}{chr(9472)*65}{N}\n")
 
@@ -734,62 +789,141 @@ async def async_main():
     i(f"Selected Mode: {W}{mode.upper()}{N}")
 
     def save_project_state():
+        def _strip_ip_keys(mapping):
+            # Key IP hasil mirror origin-IP hanya untuk run berjalan (dibangun
+            # ulang tiap kali) — menyimpannya menodai .state dengan entri
+            # sekali pakai yang tak relevan saat resume lewat domain.
+            out = {}
+            for k, v in (mapping or {}).items():
+                host = str(k).split(":")[0].strip("[]")
+                try:
+                    ipaddress.ip_address(host)
+                    continue
+                except ValueError:
+                    out[k] = v
+            return out
+
         st = ProjectState(
             target=target, seed_url=seed_url, mode=mode, version=VERSION,
             subs=subs, services=services, scan_urls=scan_urls,
             findings=all_findings, params=params, target_wafs=list(set(target_wafs)),
-            auth_tokens=dict(session_manager.auth_tokens),
-            cookies=dict(session_manager.cookies),
-            local_storage=dict(session_manager.local_storage), t0=t0)
+            auth_tokens=_strip_ip_keys(session_manager.auth_tokens),
+            cookies=_strip_ip_keys(session_manager.cookies),
+            local_storage=dict(session_manager.local_storage), t0=t0,
+            phase_done_assault=(mode == "assault" and mode_completed))
         path = st.save()
         print(f"  {GY}..{N} State saved: {C}{path}{N}")
 
     # === MODE EXECUTION ===
-    if max_time:
-        i(f"Global Time Limit set to {W}{max_time}s{N}")
-        try:
-            await asyncio.wait_for(
-                _execute_mode(
-                    mode, target, seed_url, services, subs, scan_urls, params,
-                    all_findings, target_wafs, scope_guard, session_manager,
-                    auth_headers, auth_headers2, async_engine, is_turbo,
-                    module_flags,
-                    save_project_state,
-                    max_time,
-                    policy,
-                ),
-                timeout=max_time
-            )
-        except asyncio.TimeoutError:
-            w(f"Scan timed out after {max_time} seconds! Saving findings and proceeding to reporting...")
-            # Tracker A:521: cancellation never stops a thread already
-            # inside subprocess.run — terminate the tool processes or
-            # nuclei/dalfox keep hitting the target past --max-time and
-            # asyncio.run joins them at exit (process outlives report).
-            from core.external_tools import kill_active_procs
-            kill_active_procs(f"--max-time {max_time}s")
-            # Old path skipped save entirely: .state lost everything the
-            # timeout interrupted; resume would restart from stale data.
+    # Crash-safety contract (Paket 4): any failure/interrupt below must
+    # still (a) kill tracked tool processes, (b) persist project state,
+    # (c) stop the dashboard, (d) run verify+report on whatever findings
+    # we already have, and (e) close the engine/browser pool. Before this
+    # only the --max-time path saved state; a mid-mode crash lost the run,
+    # skipped the report entirely and leaked engine/dashboard/browser.
+    interrupted = False
+    # phase_done_assault hanya True bila mode selesai SUKSES (tidak saat
+    # crash/timeout yang menyimpan state darurat) — flag dipakai resume
+    # untuk melewati re-run penuh Phase 3.
+    mode_completed = False
+    skip_assault = (resume_state is not None and mode == "assault"
+                    and getattr(resume_state, "phase_done_assault", False))
+    try:
+        if skip_assault:
+            i("Assault phase already completed (state flag) — skipping re-run, "
+              "proceeding to verify/report only")
+        elif max_time:
+            i(f"Global Time Limit set to {W}{max_time}s{N}")
             try:
-                save_project_state()
-            except Exception as e:
-                w(f"State save after timeout failed: {e}")
-    else:
-        await _execute_mode(
-            mode, target, seed_url, services, subs, scan_urls, params,
-            all_findings, target_wafs, scope_guard, session_manager,
-            auth_headers, auth_headers2, async_engine, is_turbo,
-            module_flags,
-            save_project_state,
-            None,
-            policy,
-        )
+                await asyncio.wait_for(
+                    _execute_mode(
+                        mode, target, seed_url, services, subs, scan_urls, params,
+                        all_findings, target_wafs, scope_guard, session_manager,
+                        auth_headers, auth_headers2, async_engine, is_turbo,
+                        module_flags,
+                        save_project_state,
+                        max_time,
+                        policy,
+                    ),
+                    timeout=max_time
+                )
+            except asyncio.TimeoutError:
+                w(f"Scan timed out after {max_time} seconds! Saving findings and proceeding to reporting...")
+                # Tracker A:521: cancellation never stops a thread already
+                # inside subprocess.run — terminate the tool processes or
+                # nuclei/dalfox keep hitting the target past --max-time and
+                # asyncio.run joins them at exit (process outlives report).
+                from core.external_tools import kill_active_procs
+                kill_active_procs(f"--max-time {max_time}s")
+                # Old path skipped save entirely: .state lost everything the
+                # timeout interrupted; resume would restart from stale data.
+                try:
+                    save_project_state()
+                except Exception as e:
+                    w(f"State save after timeout failed: {e}")
+        else:
+            await _execute_mode(
+                mode, target, seed_url, services, subs, scan_urls, params,
+                all_findings, target_wafs, scope_guard, session_manager,
+                auth_headers, auth_headers2, async_engine, is_turbo,
+                module_flags,
+                save_project_state,
+                None,
+                policy,
+            )
+        mode_completed = True
+    except KeyboardInterrupt:
+        interrupted = True
+        from core.external_tools import kill_active_procs
+        kill_active_procs("interrupted by user")
+        try:
+            save_project_state()
+        except Exception as e:
+            w(f"State save after interrupt failed: {e}")
+        raise
+    except BaseException as e:
+        w(f"Mode '{mode}' crashed: {e.__class__.__name__}: {str(e)[:160]} — "
+          "saving state, still reporting what we have")
+        from core.external_tools import kill_active_procs
+        kill_active_procs(f"mode {mode} crashed")
+        try:
+            save_project_state()
+        except Exception as se:
+            w(f"State save after failure failed: {se}")
+        raise
 
-    dashboard.stop()
-    await phase_verify_report(target, all_findings, services, subs, scan_urls, list(set(target_wafs)), t0, mode, async_engine, session_manager)
-    await async_engine.close()
-    from core.browser_pool import SharedBrowserPool
-    await SharedBrowserPool.shutdown()
+    # verify/report + cleanup — reached via normal flow or via an exception
+    # that will re-raise AFTER this finally completes.
+    try:
+        dashboard.stop()
+        if not interrupted:
+            # Ctrl+C skips network verify/report (user asked to stop) but a
+            # crashed mode still gets its partial findings reported.
+            try:
+                await phase_verify_report(target, all_findings, services, subs, scan_urls, list(set(target_wafs)), t0, mode, async_engine, session_manager)
+                # Simpan state FINAL: findings terverifikasi (+ ekstraksi
+                # SQLi) sudah mengisi all_findings in-place — resume tak
+                # perlu mengulang Phase 4 penuh.
+                try:
+                    save_project_state()
+                except Exception:
+                    pass
+            except Exception as e:
+                w(f"Verify/report phase failed: {e.__class__.__name__}: {str(e)[:160]}")
+                try:
+                    save_project_state()
+                except Exception:
+                    pass
+    finally:
+        try:
+            await async_engine.close()
+        except Exception as e:
+            w(f"Engine close failed: {e}")
+        try:
+            from core.browser_pool import SharedBrowserPool
+            await SharedBrowserPool.shutdown()
+        except Exception as e:
+            w(f"Browser pool shutdown failed: {e}")
 
 
 async def _execute_mode(
@@ -892,7 +1026,15 @@ async def _run_app_mode(target, seed_url, services, scan_urls, scope_guard, sess
         ph("WAF DETECTED: Running origin IP hunt")
         from modules.waf.origin_hunter import hunt_origin
         svc_hosts = [urlparse(sv["url"]).hostname for sv in services if sv.get("url")]
-        origin = await hunt_origin(target, svc_hosts, proxy=_active_proxy())
+        try:
+            origin = await asyncio.wait_for(
+                hunt_origin(target, svc_hosts, proxy=_active_proxy()), timeout=180)
+        except asyncio.TimeoutError:
+            w("Origin hunt timed out after 180s — scanning through WAF (limited)")
+            origin = None
+        except Exception as e:
+            w(f"Origin hunt failed: {str(e)[:80]} — scanning through WAF (limited)")
+            origin = None
         if origin and origin.get("origin_ip"):
             origin_ip = origin["origin_ip"]
             print(f"  {G}[+] Origin IP: {origin_ip} ({origin['protocol']}){N}")
@@ -913,41 +1055,83 @@ async def _run_app_mode(target, seed_url, services, scan_urls, scope_guard, sess
 
 
 async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_guard, session_manager, auth_headers, auth_headers2, async_engine, is_turbo, all_findings, params, target_wafs, module_flags=None, policy=None):
-    """Assault mode: auto pipeline recon → app → assault."""
+    """Assault mode: auto pipeline recon → app → assault.
+
+    Enrichment phases (recon/app/origin/katana) are best-effort: a failure
+    in one continues with the data we already have — same contract as
+    runners/full_assault.py. The final run_vuln_assault failure is NOT
+    swallowed: async_main saves state, still reports and cleans up before
+    re-raising, so the error stays visible (non-zero exit).
+    """
     if not params and len(scan_urls) <= len(services):
         ph("AUTO-RECON: Collecting intel before assault")
-        f, u = await run_recon_intel(
-            target, services, subs, scan_urls, scope_guard, async_engine,
-            is_turbo, session_manager=session_manager, policy=policy,
-        )
-        all_findings.extend(f)
-        scan_urls.clear()
-        scan_urls.extend(u)
+        try:
+            f, u = await run_recon_intel(
+                target, services, subs, scan_urls, scope_guard, async_engine,
+                is_turbo, session_manager=session_manager, policy=policy,
+            )
+            all_findings.extend(f)
+            scan_urls.clear()
+            scan_urls.extend(u)
+        except Exception as e:
+            w(f"AUTO-RECON failed: {str(e)[:80]} — continuing with existing URLs")
     if not params:
         ph("AUTO-APP: Analyzing application structure")
-        f, p, u = await run_app_analysis(
-            target, seed_url, services, scan_urls, scope_guard, session_manager,
-            auth_headers, auth_headers2, async_engine, is_turbo, policy=policy,
-        )
-        all_findings.extend(f); params.update(p)
-        scan_urls.clear()
-        scan_urls.extend(u)
+        try:
+            f, p, u = await run_app_analysis(
+                target, seed_url, services, scan_urls, scope_guard, session_manager,
+                auth_headers, auth_headers2, async_engine, is_turbo, policy=policy,
+            )
+            all_findings.extend(f); params.update(p)
+            scan_urls.clear()
+            scan_urls.extend(u)
+        except Exception as e:
+            w(f"AUTO-APP failed: {str(e)[:80]} — continuing with existing data")
     _wafs = [_w for _svc in services for _w in _svc.get("waf", [])]
     if _wafs:
-        from modules.waf.origin_hunter import hunt_origin
-        origin = await hunt_origin(target, subs, proxy=_active_proxy())
-        if origin and origin.get("origin_ip"):
-            origin_ip = origin["origin_ip"]
-            print(f"  {G}[+] Origin IP: {origin_ip} — scanning directly{N}")
-            for sv in services:
-                sv["origin_ip"] = origin_ip
+        try:
+            from modules.waf.origin_hunter import hunt_origin
+            # Backstop: hunt_origin = loop DNS + banyak curl tanpa batas
+            # waktu sendiri — tanpa ini fase origin bisa menahan seluruh
+            # assault tanpa log timeout.
+            origin = await asyncio.wait_for(
+                hunt_origin(target, subs, proxy=_active_proxy()), timeout=180)
+            if origin and origin.get("origin_ip"):
+                origin_ip = origin["origin_ip"]
+                print(f"  {G}[+] Origin IP: {origin_ip} — scanning directly{N}")
+                if policy:
+                    # Samakan dengan _run_app_mode: tanpa authorize_host,
+                    # semua URL IP dibuang policy.filter_urls /
+                    # out_of_scope_host oleh konsumen berikutnya.
+                    policy.authorize_host(origin_ip)
+                for sv in services:
+                    sv["origin_ip"] = origin_ip
+        except asyncio.TimeoutError:
+            w("Origin hunt timed out after 180s — scanning through WAF")
+        except Exception as e:
+            w(f"Origin hunt failed: {str(e)[:80]} — scanning through WAF")
     if not params:
         from core.external_tools import run_katana
         # run_katana = sync subprocess (60s) — to_thread biar event loop
         # (spinner, task async lain) gak ikut membeku selama crawl.
-        kr = await asyncio.to_thread(run_katana, seed_url, policy=policy) or {}
-        for _p in kr.get("params", []):
-            params.setdefault("/", []).append(_p)
+        try:
+            # Backstop 75s > timeout internal 60s (_run_tool) — kalau jalur
+            # salvage communicate menggantung, mode 3 tetap lanjut.
+            kr = await asyncio.wait_for(
+                asyncio.to_thread(run_katana, seed_url, policy=policy,
+                                  proxy=_active_proxy()),
+                timeout=75,
+            ) or {}
+            bucket = params.setdefault("/", [])
+            for _p in kr.get("params", []):
+                # Dedup: append mentah dulu membesarkan d_targets dengan
+                # entri kembar sebelum dedup (url,param) di shared.py.
+                if _p not in bucket:
+                    bucket.append(_p)
+        except asyncio.TimeoutError:
+            w("Katana crawl backstop hit (75s) — no extra params discovered")
+        except Exception as e:
+            w(f"Katana crawl failed: {str(e)[:80]} — no extra params discovered")
     f, wl = await run_vuln_assault(
         target, services, scan_urls, params, scope_guard, session_manager,
         async_engine, VULN_THREADS, is_turbo, module_flags=module_flags,

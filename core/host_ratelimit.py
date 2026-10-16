@@ -1,8 +1,13 @@
 """
 Per-Host Rate Limiter — Semaphore + Exponential Backoff + WAF Auto-Throttle.
 
-Solusi buat: Cloudflare 429 → backoff, 403 → harder backoff,
-server strain → auto-reduce concurrency, recovery → gradual restore.
+Solusi buat: Cloudflare 429 → backoff, server strain → auto-reduce
+concurrency, recovery → gradual restore.
+
+CATATAN: hanya 429 (rate limit nyata) yang memicu backoff. 403 adalah
+respons aplikasi NORMAL saat scanning path terproteksi — dulu tiap 403
+memicu hard backoff 15-120s + concurrency ÷3, sehingga scan target
+ber-WAF/auth menghabiskan wall-clock dalam cascade "selalu rate limited".
 """
 import asyncio
 import threading
@@ -18,7 +23,6 @@ class _HostState:
     backoff_until: float = 0.0
     backoff_multiplier: float = 1.0
     consecutive_429: int = 0
-    consecutive_403: int = 0
     total_requests: int = 0
     total_429: int = 0
     last_success: float = 0.0
@@ -31,8 +35,8 @@ class HostRateLimiter:
 
     Features:
     - Per-host semaphore → max N concurrent connections per host
-    - Exponential backoff on 429 (Too Many Requests)
-    - Hard backoff on 403 (Forbidden — possible IP ban)
+    - Exponential backoff on 429 (Too Many Requests) ONLY — 403 is a
+      normal application response, never a backoff trigger
     - Auto-throttle: reduce concurrency after 3 consecutive 429s
     - Gradual recovery: every 30s of clean requests, restore 25% concurrency
     - Timeout-based acquire: don't block forever if backoff active
@@ -93,14 +97,14 @@ class HostRateLimiter:
 
         if status == 429:
             self._handle_429(state)
-        elif status == 403:
-            self._handle_403(state)
         elif status > 0:
+            # 403 termasuk di sini: respons aplikasi normal saat scanner
+            # menyentuh path terproteksi — BUKAN tanda rate limit/ban.
             self._handle_success(state)
         # status == 0 (connection error) → no backoff change
 
     def is_backing_off(self, host: str) -> bool:
-        """True while this host is inside a 429/403 backoff window.
+        """True while this host is inside a 429 backoff window.
 
         ahttp_send already refuses (acquire() returns False) during backoff,
         but ffuf and the raw-socket modules bypass the engine — they need to
@@ -127,7 +131,6 @@ class HostRateLimiter:
     def _handle_429(self, state: _HostState):
         """Exponential backoff on rate limit."""
         state.consecutive_429 += 1
-        state.consecutive_403 = 0
         state.total_429 += 1
 
         # Exponential: 2s, 4s, 8s, 16s, cap at 60s
@@ -140,24 +143,10 @@ class HostRateLimiter:
             new_max = max(2, state.max_concurrent // 2)
             self.set_max_concurrent_direct(state, new_max)
 
-    def _handle_403(self, state: _HostState):
-        """Hard backoff on forbidden — possible IP/request ban."""
-        state.consecutive_403 += 1
-        state.consecutive_429 = 0
-
-        # Harder: 15s, 30s, 60s
-        delay = min(120.0, 15.0 * (2 ** (state.consecutive_403 - 1)))
-        state.backoff_until = time.time() + delay
-
-        # Aggressive throttle
-        new_max = max(1, state.max_concurrent // 3)
-        self.set_max_concurrent_direct(state, new_max)
-
     def _handle_success(self, state: _HostState):
         """Gradual recovery on successful request."""
         now = time.time()
         state.consecutive_429 = max(0, state.consecutive_429 - 1)
-        state.consecutive_403 = 0
         state.last_success = now
 
         # Gradual restore: every 30s of success, increase concurrency 25%

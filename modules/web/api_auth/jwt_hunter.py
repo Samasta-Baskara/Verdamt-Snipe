@@ -63,7 +63,7 @@ async def none_algorithm(url: str, engine: AsyncNetworkEngine, is_protected: boo
         token = f"{hdr}.{pld}."
         r = await engine.ahttp_send(url, headers={"Authorization": f"Bearer {token}"}, timeout=10, state_context=session_manager)
         if r and r.get("status") == 200:
-            return {"type": "jwt_none", "title": "JWT None Algorithm", "url": url[:200],
+            return {"type": "jwt_none", "title": "JWT None Algorithm", "url": url,
                     "detail": f"alg={alg} accepted", "confidence": "confirmed"}
     return None
 
@@ -81,7 +81,7 @@ async def weak_secret(url: str, engine: AsyncNetworkEngine, parsed: dict, is_pro
                 r = await engine.ahttp_send(url, headers={"Authorization": f"Bearer {token}"}, timeout=10, state_context=session_manager)
                 if r and r.get("status") == 200:
                     return {"type": "jwt_weak_secret", "title": "JWT Weak Secret",
-                            "url": url[:200], "detail": f"Secret: {secret}", "confidence": "confirmed"}
+                            "url": url, "detail": f"Secret: {secret}", "confidence": "confirmed"}
             except Exception:
                 continue
     except ImportError:
@@ -101,7 +101,7 @@ async def kid_injection(url: str, engine: AsyncNetworkEngine, parsed: dict, is_p
         r = await engine.ahttp_send(url, headers={"Authorization": f"Bearer {token}"}, timeout=10, state_context=session_manager)
         if r and r.get("status") == 200:
             return {"type": "jwt_kid_injection", "title": "JWT Kid Injection",
-                    "url": url[:200], "detail": f"Vector: {name}", "confidence": "confirmed"}
+                    "url": url, "detail": f"Vector: {name}", "confidence": "confirmed"}
     return None
 
 
@@ -117,7 +117,7 @@ async def scan_jwt(url: str, engine: AsyncNetworkEngine, session_manager=None) -
     parsed = _parse_jwt(token)
     if parsed:
         findings.append({"type": "jwt_detected", "title": f"JWT Detected (alg: {parsed['header'].get('alg', '?')})",
-                         "url": url[:200], "detail": json.dumps(parsed["payload"])[:100], "confidence": "info"})
+                         "url": url, "detail": json.dumps(parsed["payload"])[:100], "confidence": "info"})
     
     # Anti-false-positive control request: send a request with a completely invalid token
     r_control = await engine.ahttp_send(url, headers={"Authorization": "Bearer invalid.jwt.token"}, timeout=10, state_context=None)

@@ -65,6 +65,19 @@ def check_tools() -> Dict[str, Optional[str]]:
     return result
 
 
+def _tool_proxy(proxy: Optional[str]) -> Optional[str]:
+    """Normalisasi proxy URL untuk tool berbasis Go.
+
+    `socks5h://` adalah alias khusus curl (resolve DNS lewat SOCKS); tool Go
+    (nuclei, dsb.) menolaknya: "all proxies are dead: invalid proxy format"
+    → exit instan tanpa findings, tanpa stats, tanpa charge. Nyata terjadi
+    pada scan dengan VERDAMT_PROXY=socks5h://... (run demo.testfire.net).
+    """
+    if proxy and proxy.startswith("socks5h://"):
+        return "socks5://" + proxy[len("socks5h://"):]
+    return proxy
+
+
 def _policy_allows_tool(policy: Optional[ScanPolicy], tool_name: str) -> bool:
     """Check policy before an external tool is invoked."""
     if not policy:
@@ -76,10 +89,10 @@ def _policy_allows_tool(policy: Optional[ScanPolicy], tool_name: str) -> bool:
     return False
 
 
-# dalfox/nuclei request counts cannot be known before the run, so they are
-# never debited to max_requests (inventing a number would be a fake count).
-# Instead they are GATED: never start a heavy uncounted tool once the budget
-# is nearly spent. Raise only with a real counting mechanism.
+# nuclei kini didebit NYATA via -stats-json (lihat run_nuclei); dalfox belum
+# punya mekanisme serupa (tanpa flag max-requests, HAR terlalu besar untuk
+# scan penuh) — jadi tetap pakai gerbang statis: jangan mulai tool berat
+# saat budget nyaris habis. Naikkan hanya dengan mekanisme hitung nyata.
 UNCOUNTED_TOOL_FLOOR = 200
 
 
@@ -91,8 +104,8 @@ def _uncounted_tool_allowed(policy: Optional[ScanPolicy], tool_name: str) -> boo
     if remaining is None:
         return True
     if remaining < UNCOUNTED_TOOL_FLOOR:
-        w(f"{tool_name} skipped — {remaining} requests left "
-          f"(<{UNCOUNTED_TOOL_FLOOR}); its traffic is not debited to max_requests")
+        w(f"{tool_name} skipped — only {remaining} requests left "
+          f"(<{UNCOUNTED_TOOL_FLOOR} budget floor)")
         return False
     return True
 
@@ -155,7 +168,28 @@ def _run_tool(tool_name: str, args: List[str], timeout: int = 120,
             proc.kill()
         except Exception:
             pass
-        out, err = proc.communicate()
+        # Bounded reap: communicate() tanpa timeout di sini bisa block
+        # selamanya bila proses anak/pewaris masih memegang pipe stdout/
+        # stderr — thread to_thread bocor permanen karena tak bisa
+        # di-cancel. 10s grace, lalu pipe ditinggalkan.
+        try:
+            out, err = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            for pipe in (proc.stdout, proc.stderr):
+                try:
+                    if pipe:
+                        pipe.close()
+                except Exception:
+                    pass
+            try:
+                proc.wait(timeout=1)
+            except Exception:
+                pass
+            out, err = "", ""
         return -1, out or "", f"timeout after {timeout}s: {err or ''}"
     except Exception as exc:
         try:
@@ -177,7 +211,22 @@ import threading as _threading
 # "SCAN COMPLETE" (verdict A:521, verified 2026-10-06). Track every Popen
 # so the deadline path can terminate them.
 _PROCS_LOCK = _threading.Lock()
-_ACTIVE_PROCS: "set[subprocess.Popen]" = set()
+# Objects exposing kill()/terminate() — subprocess.Popen from _run_tool and
+# curl_send, plus asyncio.subprocess.Process from origin_hunter (kill() yes,
+# terminate() no — kill_active_procs tolerates that).
+_ACTIVE_PROCS: "set" = set()
+
+
+def track_proc(proc) -> None:
+    """Register any external-tool subprocess so kill_active_procs can reach
+    it from every exit path (--max-time, crash, interrupt)."""
+    with _PROCS_LOCK:
+        _ACTIVE_PROCS.add(proc)
+
+
+def untrack_proc(proc) -> None:
+    with _PROCS_LOCK:
+        _ACTIVE_PROCS.discard(proc)
 
 
 def kill_active_procs(reason: str = "scan deadline") -> int:
@@ -228,7 +277,7 @@ def run_subfinder(domain: str, timeout: int = 30,
         ]
         if proxy:
             # Go binaries ignore ALL_PROXY for socks5 — subfinder needs -proxy
-            subfinder_args += ["-proxy", proxy]
+            subfinder_args += ["-proxy", _tool_proxy(proxy)]
         rc, stdout, stderr = _run_tool("subfinder", subfinder_args,
                                        timeout=timeout, proxy=proxy)
         spin.stop()
@@ -297,7 +346,7 @@ def run_httpx(targets: List[str], timeout: int = 60, proxy: str = None,
 
     # Add proxy flag (httpx supports -proxy)
     if proxy:
-        args.extend(["-proxy", proxy])
+        args.extend(["-proxy", _tool_proxy(proxy)])
 
     try:
         rc, stdout, stderr = _run_tool("httpx", args,
@@ -446,6 +495,11 @@ def run_katana(url: str, depth: int = 2, timeout: int = 60, proxy: str = None,
 
     if not _policy_allows_tool(policy, "katana"):
         return result
+    # Katana dulu lolos total dari anggaran (tanpa gate, tanpa charge) —
+    # crawl dalam bisa menambah ribuan request tak terhitung di tengah
+    # scan yang budget-nya tinggal sedikit.
+    if not _uncounted_tool_allowed(policy, "katana"):
+        return result
     if policy:
         url = policy.canonical_url(url)
         if not url:
@@ -469,7 +523,7 @@ def run_katana(url: str, depth: int = 2, timeout: int = 60, proxy: str = None,
             # in-process transport. Output filtering alone is too late.
             katana_args.extend(["-cs", policy.root_host])
         # Add proxy flag (katana supports -proxy)
-        effective_proxy = proxy  # only from explicit arg, not env auto
+        effective_proxy = _tool_proxy(proxy)  # only from explicit arg, not env auto
         if effective_proxy:
             katana_args.extend(["-proxy", effective_proxy])
 
@@ -519,7 +573,13 @@ def run_nuclei(targets: List[str], templates: str = None,
     if not _uncounted_tool_allowed(policy, "nuclei"):
         return []
     if policy:
+        raw_count = len(targets)
         targets = policy.filter_urls(targets)
+        if not targets and raw_count:
+            # Dulu drop senyap: phase nampak normal padahal nuclei menerima
+            # 0 target (port non-80/443 / out_of_scope_host).
+            w(f"policy filtered ALL {raw_count} nuclei target(s) — "
+              "check audit log for filter_urls:<reason> entries")
     if not targets:
         return []
 
@@ -527,14 +587,22 @@ def run_nuclei(targets: List[str], templates: str = None,
     input_data = "\n".join(targets)
 
     args = [
-        "-silent",
-        "-json",
+        # -j/-jsonl, BUKAN -json: nuclei v3 menghapus -json sepenuhnya —
+        # flag lama bikin nuclei modern langsung exit ("flag provided but not
+        # defined: -json") sehingga SEMUA run mode 3 senyap 0 findings.
+        "-j",
+        # -silent ditiadakan: -silent mematikan output -sj (stats). Banner
+        # dan [INF] tetap ke stderr, stdout tetap murni JSONL (verified).
+        # -sj/-si = real counting mechanism: stats JSON berisi total request
+        # nyata, didebit ke policy.max_requests setelah run.
+        "-sj",
+        "-si", "10",
         "-no-color",
         "-severity", severity,
     ]
 
     # Add proxy flag (nuclei supports -proxy)
-    effective_proxy = proxy  # only from explicit arg, not env auto
+    effective_proxy = _tool_proxy(proxy)  # only from explicit arg, not env auto
     if effective_proxy:
         args.extend(["-proxy", effective_proxy])
 
@@ -612,7 +680,7 @@ def run_nuclei(targets: List[str], templates: str = None,
             "detail": f"{info.get('description') or f'Template: {template_id}'}",
             "waf": "",
             "time": 0,
-            "status": data.get("info", {}).get("status") or 0,
+            "status": info.get("status") or 0,
             "confidence": "confirmed",
             "cvss_score": _nuclei_severity_to_cvss(sev),
             "cvss_severity": sev,
@@ -625,6 +693,40 @@ def run_nuclei(targets: List[str], templates: str = None,
         if matcher_name:
             finding["detail"] += f" [{matcher_name}]"
         findings.append(finding)
+
+    # Real counting: debit jumlah request NYATA dari stats JSON (-sj) ke
+    # budget scan. Dulu nuclei tak pernah di-charge sama sekali — total
+    # trafik melebihi max_requests berkali-kali tanpa jejak (audit lama:
+    # 59% request modul lain mati request_budget_exhausted). Jalur timeout
+    # pun tetap punya stats parsial (granularitas 10s) — tetap didebit.
+    if policy:
+        stats_requests = re.findall(r'"requests":"(\d+)"', stderr or "")
+        if stats_requests:
+            n_used = int(stats_requests[-1])
+            charged = policy.charge(
+                n_used,
+                reason="nuclei" if rc != -1 else "nuclei(timeout-partial)")
+            if charged < n_used:
+                w(f"nuclei consumed {n_used} requests but only {charged} "
+                  f"fit the remaining budget (max_requests overflowed)")
+        else:
+            w("nuclei stats unavailable — this run's traffic not debited "
+              "to max_requests")
+
+    # Surface tool failures: rc/stderr were previously discarded right here,
+    # making a crashed/failed run indistinguishable from a clean 0-finding
+    # scan (false-negative operasional). Timeout is already logged by
+    # _run_tool with partial-output salvage — don't double-report it.
+    if rc != 0 and "timeout after" not in (stderr or ""):
+        from core.ui import w
+        # Stderr tanpa -silent membawa banner/[INF] — buang baris stats
+        # lalu ambil tail yang meaningful.
+        stripped = "\n".join(
+            ln for ln in (stderr or "").splitlines() if '"requests"' not in ln
+        ).strip()
+        tail = stripped[-150:] if stripped else "(no stderr)"
+        note = f"{len(findings)} finding(s) salvaged" if findings else "0 findings"
+        w(f"nuclei exited rc={rc} ({note}): {tail}")
 
     if findings:
         from core.ui import p, G, Y, N
@@ -657,7 +759,11 @@ def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
     if not _uncounted_tool_allowed(policy, "dalfox"):
         return []
     if policy:
+        raw_count = len(urls)
         urls = policy.filter_urls(urls)
+        if not urls and raw_count:
+            w(f"policy filtered ALL {raw_count} dalfox target(s) — "
+              "check audit log for filter_urls:<reason> entries")
     if not urls:
         return []
 
@@ -668,7 +774,11 @@ def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
         dalfox_args = [
             "pipe",
             "--silence",
-            "--format", "json",
+            # jsonl, BUKAN json: --format json mencetak array pretty-print
+            # multi-baris sementara parser kita per-baris (json.loads per
+            # line) — setiap finding nyata gagal diparse dan dalfox selalu
+            # terlihat "0 findings".
+            "--format", "jsonl",
             "--skip-bav",
             "--no-color",
         ]
@@ -676,7 +786,7 @@ def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
             for k, v in headers.items():
                 dalfox_args.extend(["--header", f"{k}: {v}"])
         # Add proxy flag (dalfox supports --proxy)
-        effective_proxy = proxy  # only from explicit arg, not env auto
+        effective_proxy = _tool_proxy(proxy)  # only from explicit arg, not env auto
         if effective_proxy:
             dalfox_args.extend(["--proxy", effective_proxy])
 
@@ -719,6 +829,13 @@ def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
             }
             if not policy or policy.allows_url(finding["url"]):
                 findings.append(finding)
+
+    # Same contract as run_nuclei: never hide a failed tool behind a clean
+    # "0 findings" (timeout already logged by _run_tool).
+    if rc != 0 and "timeout after" not in (stderr or ""):
+        from core.ui import w
+        note = f"{len(findings)} finding(s) salvaged" if findings else "0 findings"
+        w(f"dalfox exited rc={rc} ({note}): {(stderr or '').strip()[:150]}")
 
     return findings
 

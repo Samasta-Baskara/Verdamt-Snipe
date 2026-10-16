@@ -22,6 +22,9 @@ class AuditLogger:
     def __init__(self, log_path: Optional[str] = None):
         self.log_path = log_path
         self._file_lock = Lock()
+        # Lazy run-marker: ditulis pada entry PERTAMA run ini, bukan saat
+        # configure — file tidak dibuat sama sekali bila run nol aktivitas.
+        self._run_marker_pending = bool(log_path)
 
         if self.log_path:
             p = Path(self.log_path)
@@ -48,6 +51,19 @@ class AuditLogger:
         with self._file_lock:
             try:
                 with open(self.log_path, "a", encoding="utf-8") as f:
+                    # Penanda batas run: file audit di-APPEND lintas-run —
+                    # pembaca perlu tahu di mana run berikutnya dimulai
+                    # (filter: type == "run_start").
+                    if self._run_marker_pending:
+                        self._run_marker_pending = False
+                        marker = {
+                            "type": "run_start", "url": "", "method": "RUN",
+                            "status_code": 0, "elapsed_ms": 0.0,
+                            "allowed": True, "reason": "run_start",
+                            "dry_run": False,
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        }
+                        f.write(json.dumps(marker) + "\n")
                     f.write(line)
             except Exception as ex:
                 if not getattr(self, "_write_warned", False):

@@ -87,6 +87,20 @@ CVSS_DB = {
     "ds_store_leak":      {"s":3.7,"v":"Low","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
     "backup_archive":     {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
     "directory_listing":  {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+    # Web-module findings (mode 3) — dulu tak ada di DB → default Info →
+    # DIBUANG dari laporan HTML/PDF padahal "Confirmed" di console
+    # (JWT/CRLF/host/IDOR tak pernah muncul di artefak laporan).
+    "jwt_none":           {"s":8.1,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"},
+    "jwt_weak_secret":    {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "jwt_kid_injection":  {"s":7.5,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"},
+    "jwt_detected":       {"s":0.0,"v":"Info","vec":"N/A"},
+    "host_header_injection": {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+    "password_reset_poisoning": {"s":8.1,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"},
+    "crlf_injection":     {"s":5.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"},
+    "crlf_response_splitting": {"s":6.1,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N"},
+    "idor_mass":          {"s":8.1,"v":"High","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N"},
+    "sqli_extracted":     {"s":9.8,"v":"Critical","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"},
+    "stored_input":       {"s":4.3,"v":"Medium","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N"},
 }
 
 # Auto-map js_secret_* types

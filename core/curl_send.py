@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 def curl_send(url: str, resolve_domain: str = None, resolve_ip: str = None,
               method: str = "GET", headers: dict = None, data: str = None,
-              timeout: int = 10, proxy: str = None) -> Dict:
+              timeout: int = 10, proxy: str = None, policy=None) -> Dict:
     """HTTP request via curl with optional --resolve for origin IP scan.
 
     When resolve_domain + resolve_ip are set, uses curl's --resolve flag:
@@ -21,7 +21,24 @@ def curl_send(url: str, resolve_domain: str = None, resolve_ip: str = None,
     This sends the domain as SNI (correct TLS), but routes to origin IP.
 
     Uses a single curl call (body saved to temp file, metadata via -w).
+
+    policy: saat diberikan, request melewati authorize_request yang SAMA
+    dengan jalur ahttp_send — scope check, debit max_requests (1 request
+    persis per panggilan) dan audit trail. Dulu jalur origin-IP ini lolos
+    total dari kebijakan/anggaran.
     """
+    if policy:
+        decision = policy.authorize_request(url, method=method,
+                                            headers=headers, body=data)
+        if not decision.allowed:
+            return {"status": 0, "error": f"policy_denied:{decision.reason}",
+                    "body": "", "headers": {}, "time": 0}
+        if getattr(policy, "dry_run", False):
+            policy.refund_request(reason="dry_run", url=url)
+            return {"status": 200, "error": None,
+                    "body": "[DRY RUN] Request authorized but not dispatched to network.",
+                    "headers": {}, "time": 0.001}
+
     fd, body_file = tempfile.mkstemp(suffix=".curl_body")
     os.close(fd)
     cmd = ["curl", "-s", "--max-time", str(timeout), "-o", body_file,
@@ -52,12 +69,22 @@ def curl_send(url: str, resolve_domain: str = None, resolve_ip: str = None,
 
     cmd.append(url)
 
+    # Popen (bukan subprocess.run) + registry: subprocess.run tak terjangkau
+    # kill_active_procs — jalur origin-IP internal injection tetap menembak
+    # target melewati --max-time/crash.
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 2)
-        if r.returncode != 0:
-            return {"status": 0, "error": r.stderr.strip()[:100], "body": "", "headers": {}, "time": 0}
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+    except Exception as e:
+        return {"status": 0, "error": str(e)[:100], "body": "", "headers": {}, "time": 0}
+    from core.external_tools import track_proc, untrack_proc
+    track_proc(proc)
+    try:
+        out, err_out = proc.communicate(timeout=timeout + 2)
+        if proc.returncode != 0:
+            return {"status": 0, "error": (err_out or "").strip()[:100], "body": "", "headers": {}, "time": 0}
 
-        parts = r.stdout.strip().split(":")
+        parts = (out or "").strip().split(":")
         code = int(parts[0]) if parts and parts[0].isdigit() else 0
         elapsed = float(parts[1]) if len(parts) > 1 else 0
         size = int(parts[2]) if len(parts) > 2 else 0
@@ -79,10 +106,15 @@ def curl_send(url: str, resolve_domain: str = None, resolve_ip: str = None,
             "error": None,
         }
     except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
         return {"status": 0, "error": "timeout", "body": "", "headers": {}, "time": timeout}
     except Exception as e:
         return {"status": 0, "error": str(e)[:100], "body": "", "headers": {}, "time": 0}
     finally:
+        untrack_proc(proc)
         # Clean up temp file
         if os.path.exists(body_file):
             try:

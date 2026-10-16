@@ -5,6 +5,7 @@ import re
 import asyncio
 from typing import Dict, List, Optional
 from core.async_network import AsyncNetworkEngine
+from core.ui import w
 
 async def scan_idor(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:
     """Enumerate numeric IDs and check for accessible data."""
@@ -33,7 +34,7 @@ async def scan_idor(url: str, engine: AsyncNetworkEngine, session_manager=None) 
     async def _test_idor(tid: int):
         test_url = base_url.format(tid)
         r = await engine.ahttp_send(test_url, timeout=10, state_context=session_manager)
-        if r["status"] == 200:
+        if r.get("status") == 200:
             body = r.get("body", "") or ""
             # Check if response is different from baseline (different user data)
             if len(body) > 50 and abs(len(body) - baseline_size) > 100:
@@ -55,12 +56,16 @@ async def scan_idor(url: str, engine: AsyncNetworkEngine, session_manager=None) 
     for res in results:
         if isinstance(res, int):
             accessible.append(res)
+        elif isinstance(res, BaseException):
+            # Was silently dropped — crashed probes counted as "not accessible".
+            w(f"idor probe crashed for {url[:80]}: "
+              f"{res.__class__.__name__}: {str(res)[:80]}")
 
     if accessible:
         findings.append({
             "type": "idor_mass",
             "title": "IDOR Mass Enumeration",
-            "url": url[:200],
+            "url": url,
             "detail": f"Accessible IDs: {accessible[:10]} (from {base_url.format('ID')})",
             "accessible_count": len(accessible),
             "confidence": "confirmed",

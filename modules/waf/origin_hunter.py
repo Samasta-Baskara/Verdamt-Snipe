@@ -146,6 +146,46 @@ def _is_valid_ip(ip_str: str) -> bool:
 
 # HTTP HELPERS
 
+async def _run_subprocess(cmd: List[str], timeout: float):
+    """Jalankan subprocess async DENGAN REAP DIJAMIN di semua jalur keluar.
+
+    Pola lama `wait_for(proc.communicate(), timeout)` + `except: pass`
+    membiarkan proses hidup tanpa pernah di-wait saat timeout/cancel —
+    transport asyncio lalu di-GC setelah event loop ditutup dan Python
+    melempar "Exception ignored in: BaseSubprocessTransport.__del__ ...
+    RuntimeError: Event loop is closed".
+
+    Returns (returncode, stdout_bytes). Kill + wait di finally; shield
+    agar pembatalan task sendiri tidak membatalkan pembersihan.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    from core.external_tools import track_proc, untrack_proc
+    track_proc(proc)
+    try:
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            return proc.returncode, stdout
+        finally:
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                except Exception:
+                    pass
+            try:
+                await asyncio.wait_for(asyncio.shield(proc.wait()), timeout=3)
+            except BaseException:
+                pass
+    finally:
+        try:
+            untrack_proc(proc)
+        except Exception:
+            pass
+
+
 async def _curl(url: str, headers: dict = None, host: str = None,
                 timeout: int = 10, follow: bool = True) -> dict:
     """Async curl wrapper with full response capture."""
@@ -164,46 +204,46 @@ async def _curl(url: str, headers: dict = None, host: str = None,
     cmd.append(url)
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout + 5)
-        output = stdout.decode("latin-1", errors="replace").strip()
-
-        if proc.returncode not in (0, 22) or not output:
-            return {"status": 0, "headers": {}, "body": "", "size": 0, "time": 0}
-
-        # Parse -i output: headers + body
-        parts = output.split("\r\n\r\n", 1)
-        if len(parts) == 2:
-            raw_headers, body = parts
-        else:
-            raw_headers, body = output, ""
-
-        # Parse status from first header line
-        status = 0
-        header_lines = raw_headers.split("\r\n")
-        if header_lines:
-            match = re.match(r"HTTP/\d\.\d+\s+(\d+)", header_lines[0])
-            if match:
-                status = int(match.group(1))
-
-        # Parse headers
-        resp_headers = {}
-        for line in header_lines[1:]:
-            if ":" in line:
-                k, v = line.split(":", 1)
-                resp_headers[k.strip().lower()] = v.strip()
-
-        return {
-            "status": status,
-            "headers": resp_headers,
-            "body": body[:50000],  # Cap body size
-            "size": len(body),
-            "time": 0,
-        }
+        rc, stdout = await _run_subprocess(cmd, timeout + 5)
+    except asyncio.CancelledError:
+        # Helper sudah kill+reap — tinggal teruskan pembatalan.
+        raise
     except Exception:
         return {"status": 0, "headers": {}, "body": "", "size": 0, "time": 0}
+
+    output = (stdout or b"").decode("latin-1", errors="replace").strip()
+    if rc not in (0, 22) or not output:
+        return {"status": 0, "headers": {}, "body": "", "size": 0, "time": 0}
+
+    # Parse -i output: headers + body
+    parts = output.split("\r\n\r\n", 1)
+    if len(parts) == 2:
+        raw_headers, body = parts
+    else:
+        raw_headers, body = output, ""
+
+    # Parse status from first header line
+    status = 0
+    header_lines = raw_headers.split("\r\n")
+    if header_lines:
+        match = re.match(r"HTTP/\d\.\d+\s+(\d+)", header_lines[0])
+        if match:
+            status = int(match.group(1))
+
+    # Parse headers
+    resp_headers = {}
+    for line in header_lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            resp_headers[k.strip().lower()] = v.strip()
+
+    return {
+        "status": status,
+        "headers": resp_headers,
+        "body": body[:50000],  # Cap body size
+        "size": len(body),
+        "time": 0,
+    }
 
 
 async def _curl_json(url: str, timeout: int = 10) -> Optional[dict]:
@@ -557,12 +597,8 @@ async def _method_email_infra(domain: str) -> List[dict]:
 
     # MX records
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "host", "-t", "MX", domain,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        for line in stdout.decode().splitlines():
+        _, stdout = await _run_subprocess(["host", "-t", "MX", domain], timeout=5)
+        for line in stdout.decode(errors="replace").splitlines():
             # Extract hostname from MX record
             match = re.search(r"mail handled by \d+ (.+)\.", line)
             if match:
@@ -578,12 +614,8 @@ async def _method_email_infra(domain: str) -> List[dict]:
 
     # SPF record
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "host", "-t", "TXT", domain,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        for line in stdout.decode().splitlines():
+        _, stdout = await _run_subprocess(["host", "-t", "TXT", domain], timeout=5)
+        for line in stdout.decode(errors="replace").splitlines():
             if "v=spf1" in line:
                 # Extract IPs from SPF
                 for ip_str in re.findall(r'ip[46]:([^\s]+)', line):
@@ -767,23 +799,16 @@ async def _method_dns_zone_transfer(domain: str) -> List[dict]:
     results = []
     # Get nameservers
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "host", "-t", "NS", domain,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        ns_list = re.findall(r"nameserver = (.+)\.", stdout.decode())
+        _, stdout = await _run_subprocess(["host", "-t", "NS", domain], timeout=5)
+        ns_list = re.findall(r"nameserver = (.+)\.", stdout.decode(errors="replace"))
 
         for ns in ns_list[:3]:
             ns = ns.strip()
             # Attempt zone transfer
             try:
-                proc = await asyncio.create_subprocess_exec(
-                    "host", "-l", domain, ns,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-                output = stdout.decode()
+                _, stdout = await _run_subprocess(
+                    ["host", "-l", domain, ns], timeout=10)
+                output = stdout.decode(errors="replace")
                 if "Transfer failed" not in output and "timed out" not in output:
                     # Zone transfer succeeded!
                     ip_matches = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', output)
@@ -807,12 +832,9 @@ async def _method_subdomain_takeover(domain: str, subs: List[str]) -> List[dict]
     results = []
     for sub in subs[:30]:
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "host", "-t", "CNAME", sub,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-            output = stdout.decode()
+            _, stdout = await _run_subprocess(
+                ["host", "-t", "CNAME", sub], timeout=5)
+            output = stdout.decode(errors="replace")
 
             # Check for dangling CNAME
             cname_match = re.search(r"domain name pointer (.+)\.", output)

@@ -24,7 +24,8 @@ class TestAuditAndDryRun(unittest.TestCase):
 
         self.assertTrue(os.path.exists(self.audit_path))
         with open(self.audit_path, "r", encoding="utf-8") as f:
-            lines = [json.loads(line) for line in f if line.strip()]
+            lines = [json.loads(line) for line in f if line.strip()
+                     if json.loads(line)["type"] != "run_start"]
 
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0]["type"], "request")
@@ -71,7 +72,8 @@ class TestAuditAndDryRun(unittest.TestCase):
         logger = AuditLogger.get_instance()
         logger.log_request("https://t/x", "POST", allowed=True, body="A" * (BODY_CAP + 500))
         with open(self.audit_path, "r", encoding="utf-8") as f:
-            entry = json.loads(f.readline())
+            entries = [json.loads(l) for l in f if l.strip()]
+        entry = [e for e in entries if e["type"] != "run_start"][0]
         self.assertEqual(len(entry["body"]), BODY_CAP)
         self.assertTrue(entry.get("body_truncated"))
 
@@ -91,7 +93,9 @@ class TestAuditAndDryRun(unittest.TestCase):
         AuditLogger.get_instance().log_response(
             "https://t/api", "GET", status_code=403, elapsed=0.25, error=None)
         with open(self.audit_path, "r", encoding="utf-8") as f:
-            entry = json.loads(f.readline())
+            entries = [json.loads(l) for l in f if l.strip()]
+        # configure() menulis type=run_start sebagai batas run — skip.
+        entry = [e for e in entries if e["type"] != "run_start"][0]
         self.assertEqual(entry["type"], "response")
         self.assertEqual(entry["status_code"], 403)
         self.assertEqual(entry["elapsed_ms"], 250.0)
@@ -104,15 +108,25 @@ class TestAuditAndDryRun(unittest.TestCase):
             "https://target.com/a", "GET", status_code=200, elapsed=0.1,
             trace_id="abc123def456")
         with open(self.audit_path, "r", encoding="utf-8") as f:
-            entries = [json.loads(l) for l in f if l.strip()]
+            entries = [json.loads(l) for l in f if l.strip()
+                       if json.loads(l)["type"] != "run_start"]
         self.assertEqual(entries[0]["trace_id"], "abc123def456")
         self.assertEqual(entries[1]["trace_id"], "abc123def456")
+
+    def test_run_start_marker_written_by_configure(self):
+        """Entry pertama run didahului marker run_start (lazy — file hanya
+        dibuat bila run benar-benar menulis sesuatu)."""
+        AuditLogger.get_instance().log_request("https://t/x", "GET", allowed=True)
+        with open(self.audit_path, "r", encoding="utf-8") as f:
+            first = json.loads(f.readline())
+        self.assertEqual(first["type"], "run_start")
 
     def test_log_finding_evidence_capped(self):
         AuditLogger.get_instance().log_finding(
             "LFI", "High", "https://t/x", "test", evidence="E" * 10000)
         with open(self.audit_path, "r", encoding="utf-8") as f:
-            entry = json.loads(f.readline())
+            entries = [json.loads(l) for l in f if l.strip()]
+        entry = [e for e in entries if e["type"] != "run_start"][0]
         self.assertEqual(entry["type"], "finding")
         self.assertEqual(len(entry["evidence"]), 4096)
 

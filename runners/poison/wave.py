@@ -19,7 +19,7 @@ from runners.shared import inject_query_payload
 
 
 def _hold_for_backoff(state, what: str) -> bool:
-    """True while the target host sits inside a 429/403 backoff window.
+    """True while the target host sits inside a 429 backoff window.
 
     AsyncNetworkEngine already refuses its own requests during backoff, but
     ffuf and the raw-socket modules bypass the engine — without this check,
@@ -39,5 +39,5 @@ def _hold_for_backoff(state, what: str) -> bool:
         return False
     if held and state._backoff_notice_wave != state.wave:
         state._backoff_notice_wave = state.wave
-        w(f"Host in 429/403 backoff — holding {what}")
+        w(f"Host in 429 backoff — holding {what}")
     return held

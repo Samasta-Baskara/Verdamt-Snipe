@@ -35,7 +35,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, quote, urlencode
 
 from core.ui import ph, i, s, w, p, Spinner, G, R, Y, C, W, N, B, M, GY, D, draw_table
-from modules.waf.origin_hunter import hunt_origin, _is_waf_ip, _resolve, _quick_probe, _curl
+from modules.waf.origin_hunter import hunt_origin, _is_waf_ip, _resolve, _quick_probe, _curl, _run_subprocess
 
 
 # WAF-SPECIFIC BYPASS TECHNIQUES
@@ -251,12 +251,11 @@ async def _try_method_bypass(domain: str, base: str, baseline: dict) -> List[dic
                "--connect-timeout", "5", "--max-time", "8",
                "-w", "%{http_code}", base]
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-            status_str = stdout.decode().strip()
-            if status_str and status_str.isdigit():
+            # _run_subprocess: kill+reap dijamin — pola lama create+wait_for
+            # tanpa wait memicu "Event loop is closed" saat GC transport.
+            rc, stdout = await _run_subprocess(cmd, timeout=10)
+            status_str = stdout.decode(errors="replace").strip()
+            if rc == 0 and status_str and status_str.isdigit():
                 status = int(status_str)
                 if status == 200 and baseline.get("status") in (403, 401, 406, 429):
                     results.append({
@@ -329,12 +328,9 @@ async def _try_chunked_bypass(domain: str, base: str, baseline: dict) -> List[di
            "-H", "Transfer-Encoding: chunked",
            "-w", "%{http_code}", f"{base}/admin"]
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        status_str = stdout.decode().strip()
-        if status_str and status_str.isdigit():
+        rc, stdout = await _run_subprocess(cmd, timeout=10)
+        status_str = stdout.decode(errors="replace").strip()
+        if rc == 0 and status_str and status_str.isdigit():
             status = int(status_str)
             if status == 200:
                 results.append({
@@ -361,12 +357,9 @@ async def _try_h2_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
            "--connect-timeout", "5", "--max-time", "8",
            "-w", "%{http_code}", f"{base}/admin"]
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        status_str = stdout.decode().strip()
-        if status_str and status_str.isdigit():
+        rc, stdout = await _run_subprocess(cmd, timeout=10)
+        status_str = stdout.decode(errors="replace").strip()
+        if rc == 0 and status_str and status_str.isdigit():
             status = int(status_str)
             if status == 200:
                 results.append({

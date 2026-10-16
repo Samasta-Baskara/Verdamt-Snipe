@@ -684,8 +684,6 @@ class ScanDashboard:
         self.start_time: float = 0.0
         self._live: Optional[Live] = None
         self._active: bool = False
-        self._last_render_time: float = 0.0
-        self._min_render_interval: float = 0.125  # ~8 FPS
 
         # activity-feed cursor (absolute event sequence numbers)
         self._event_seq: int = 0
@@ -748,6 +746,13 @@ class ScanDashboard:
             self._append_event_locked("Initializing modules...", "cyan", "info")
 
         if not self._active:
+            # Non-tty (output di-redirect ke file/pipe): Live transient
+            # MENGHAPUS frame sebelumnya dari stream — semua log fase
+            # (ph/i/w) hilang dari file log (verified: run testfire.log
+            # hanya menyisakan ~248 baris terakhir). Tanpa Live, print
+            # biasa mengalir utuh ke log; panel live cukup di terminal.
+            if not getattr(console, "is_terminal", False):
+                return
             self._live = Live(
                 get_renderable=self._build_layout,
                 console=console,

@@ -19,7 +19,8 @@ class TestRefundAudit(unittest.TestCase):
 
     def _entries(self):
         with open(self.path, "r", encoding="utf-8") as f:
-            return [json.loads(l) for l in f if l.strip()]
+            return [json.loads(l) for l in f if l.strip()
+                    if json.loads(l)["type"] != "run_start"]
 
     def test_refund_writes_entry_and_returns_budget(self):
         policy = ScanPolicy("target.com", max_requests=5)

@@ -127,16 +127,32 @@ class DOMXSSScanner:
             'analytics', 'gtag', 'fbevents', 'hotjar', 'owl.carousel',
             'venobox', 'swiper', 'lightbox', 'slick', 'fancybox',
             'magnific-popup', 'isotope', 'masonry', 'select2', 'datatables',
-            'chart.js', 'three.js', 'gsap', 'fontawesome', 'feather'
+            'chart.js', 'three.js', 'gsap', 'fontawesome', 'feather',
+            # Library yang dulu membanjiri laporan (scan testfire: 29 dari
+            # 33 findings = swagger-ui-bundle.js milik library, bukan kode
+            # aplikasi target). Sink di library bukan vuln aplikasi target.
+            'swagger', 'openapi', 'ckeditor', 'tinymce', 'highlight',
+            'prism', 'mathjax', 'katex', 'leaflet', 'mapbox', 'dropzone',
+            'fullcalendar', 'apexcharts', 'highcharts', 'plotly',
         ]
-        
+        skip_path_markers = ('/vendor/', '/dist/', '/node_modules/', '/assets/lib/')
+
         for u in self.urls:
             path = u.split("?")[0].lower()
-            if path.endswith(".js"):
-                filename = path.split("/")[-1]
-                if not any(lib in filename for lib in skip_libs):
-                    js_urls.append(u)
-        
+            if not path.endswith(".js"):
+                continue
+            filename = path.split("/")[-1]
+            if any(lib in filename for lib in skip_libs):
+                continue
+            # pola bundel/minified = artefak build library, bukan app code
+            if (filename.endswith(".min.js")
+                    or filename.endswith("-bundle.js")
+                    or ".bundle.js" in filename):
+                continue
+            if any(marker in path for marker in skip_path_markers):
+                continue
+            js_urls.append(u)
+
         return list(set(js_urls))
 
     def _find_sources(self, content: str) -> List[Tuple[str, int, str]]:

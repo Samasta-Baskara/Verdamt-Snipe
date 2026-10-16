@@ -18,8 +18,11 @@ async def scan_crlf(url: str, engine: AsyncNetworkEngine, session_manager=None) 
     ]
 
     for payload, vuln_type in payloads:
-        # Inject in URL param
-        test_url = f"{url}?q={payload}&x={payload}"
+        # Inject in URL param — pisah query dengan benar: dulu selalu
+        # `?q=...` sehingga URL yang sudah membawa query menghasilkan
+        # `...?a=1?q=...` (payload tak pernah jadi param valid).
+        sep = "&" if "?" in (url or "") else "?"
+        test_url = f"{url}{sep}q={payload}&x={payload}"
         r = await engine.ahttp_send(test_url, timeout=10, state_context=session_manager)
         if r["status"] > 0:
             headers = {k.lower(): v for k, v in r.get("headers", {}).items()}
@@ -27,7 +30,7 @@ async def scan_crlf(url: str, engine: AsyncNetworkEngine, session_manager=None) 
             # Check for injected header
             if vuln_type == "header_injection" and "x-injected" in headers:
                 findings.append({"type": "crlf_injection", "title": "CRLF Injection",
-                                 "url": test_url[:200], "detail": "Header injection confirmed via X-Injected",
+                                 "url": test_url, "detail": "Header injection confirmed via X-Injected",
                                  "confidence": "confirmed"})
 
             # Check for response splitting (multiple HTTP responses)
@@ -35,7 +38,7 @@ async def scan_crlf(url: str, engine: AsyncNetworkEngine, session_manager=None) 
                 body = r.get("body", "") or ""
                 if "HTTP/1.1 200 OK" in body and "Content-Type: text/html" in body:
                     findings.append({"type": "crlf_response_splitting", "title": "CRLF Response Splitting",
-                                     "url": test_url[:200], "detail": "Multiple HTTP responses in single request",
+                                     "url": test_url, "detail": "Multiple HTTP responses in single request",
                                      "confidence": "suspected"})
 
     return findings

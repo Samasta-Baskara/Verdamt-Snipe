@@ -53,9 +53,12 @@ class CircuitBreaker:
     """Per-host circuit breaker with CLOSED/OPEN/HALF-OPEN state machine.
     
     Integrates with AdaptivePacingSystem for coordinated throttling.
-    
+
+    Only 429 (real rate limiting) counts as a failure — a 403 is a normal
+    application response during scanning and must never trip the circuit.
+
     Flow:
-        CLOSED → 5x consecutive 403/429 → OPEN
+        CLOSED → 5x consecutive 429 → OPEN
         OPEN → cooldown expires → HALF_OPEN
         HALF_OPEN → probe success → CLOSED
         HALF_OPEN → probe fail → OPEN (longer cooldown)
@@ -129,7 +132,8 @@ class CircuitBreaker:
         h["last_success"] = now
 
     def record_failure(self, hostname: str, status_code: int = 0):
-        """Record a blocked/rate-limited response (403, 429)."""
+        """Record a rate-limited response (429). Caller decides what counts —
+        403 must NOT be routed here (bukan rate limit)."""
         h = self._get_host(hostname)
         now = time.time()
 

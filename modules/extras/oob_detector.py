@@ -83,6 +83,10 @@ class OOBDetector:
     Async Out-of-Band / Blind vulnerability detection engine using interact.sh.
     Replaces the legacy local port-forwarding HTTP server.
     """
+    # Cap fan-out lintas (path × service × param) — puluhan ribu coroutine
+    # mengerumuni satu gate engine dan hasilnya tetap terbuang saat timeout.
+    MAX_TASKS = 400
+
     def __init__(self, target: str, services: List[Dict], params: Dict,
                  network_engine: AsyncNetworkEngine, session_manager=None,
                  allow_post: bool = True):
@@ -94,6 +98,9 @@ class OOBDetector:
         self.findings: List[Dict] = []
         self.interactsh = InteractshClient()
         self.allow_post = allow_post
+        # Dispatch dipotong lebih awal supaya sisa jatah waktu tersedia
+        # untuk fase poll + hit-check di dalam backstop modul (60s).
+        self.dispatch_timeout = 45.0
 
     def _generate_marker(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:8]}"
@@ -170,6 +177,12 @@ class OOBDetector:
         if self.allow_post:
             for sv in self.services:
                 tasks.append(self._test_target("xxe", sv["url"], None))
+
+        if len(tasks) > self.MAX_TASKS:
+            w(f"OOB: capping payload fan-out {len(tasks)} → {self.MAX_TASKS} tasks")
+            for coro in tasks[self.MAX_TASKS:]:
+                coro.close()  # coroutine tak boleh ditinggal tanpa di-await
+            tasks = tasks[:self.MAX_TASKS]
         return tasks
 
     async def run(self) -> List[Dict]:
@@ -193,11 +206,32 @@ class OOBDetector:
 
         try:
             tasks = self._build_tasks()
+            if not tasks:
+                w("OOB: no payload tasks built (no params/services) — skipping dispatch")
+                return []
 
             i(f"Dispatching {W}{len(tasks)}{N} async blind payloads...")
 
-            # Execute concurrently
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # asyncio.wait + dispatch deadline: dulu gather penuh bisa
+            # menghabiskan seluruh budget modul lalu timeout membuang semua
+            # hasil. Sekarang task yang belum selesai dipotong lebih awal
+            # sehingga poll + hit-check tetap sempat berjalan.
+            task_objs = [asyncio.create_task(t) for t in tasks]
+            done, pending = await asyncio.wait(
+                task_objs, timeout=self.dispatch_timeout)
+            if pending:
+                w(f"OOB: {len(pending)} payload task(s) cut off by "
+                  f"{self.dispatch_timeout:.0f}s dispatch deadline — "
+                  "checking completed markers only")
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+            results = []
+            for t in done:
+                try:
+                    results.append(t.result())
+                except Exception:
+                    continue
 
             i("Waiting 3 seconds for DNS/HTTP propagation and callbacks...")
             await asyncio.sleep(3)
@@ -228,6 +262,17 @@ class OOBDetector:
                     s(f"{R}BLIND VULN CONFIRMED:{N} {W}{task_type.upper()}{N} at {C}{url[:60]}{N}")
         finally:
             poll_task.cancel()
+            # Tanpa await, pembatalan poll tak pernah dikonfirmasi → warning
+            # task pending saat loop ditutup.
+            try:
+                await poll_task
+            except asyncio.CancelledError:
+                # Bedakan cancel poll_task (yang kita minta) dari cancel
+                # task luar yang sedang berjalan di atas kita.
+                if asyncio.current_task().cancelling():
+                    raise
+            except Exception:
+                pass
             await self.interactsh._stop()
 
         if self.findings:

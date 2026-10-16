@@ -39,11 +39,11 @@ class StoredXSSHunter:
                 # menandakan route ada: 2xx/3xx/401/403. 404/410 = tidak ada.
                 r = await self.engine.ahttp_send(form_url, timeout=10,
                                                  state_context=self.session_manager)
-                if r["status"] in (200, 201, 301, 302, 303, 307, 308, 401, 403):
+                if r.get("status") in (200, 201, 301, 302, 303, 307, 308, 401, 403):
                     form_findings.append({
                         "type": "form_endpoint",
                         "title": "Input Form Endpoint",
-                        "url": form_url[:200],
+                        "url": form_url,
                         "detail": (f"GET {r['status']} — path exists; "
                                    "injection testing skipped (POST only mode 4)"),
                         "confidence": "confirmed",
@@ -58,7 +58,7 @@ class StoredXSSHunter:
             r = await self.engine.ahttp_send(form_url, method="POST",
                       data={"name": payload, "message": payload, "email": "test@test.com"},
                       timeout=10, state_context=self.session_manager)
-            if r["status"] in (200, 302, 301):
+            if r.get("status") in (200, 302, 301):
                 # Re-fetch to check if stored
                 r2 = await self.engine.ahttp_send(form_url, timeout=10, state_context=self.session_manager)
                 r_base = await self.engine.ahttp_send(base, timeout=10, state_context=self.session_manager)
@@ -67,7 +67,7 @@ class StoredXSSHunter:
                     form_findings.append({
                         "type": "stored_input",
                         "title": "Stored Input Found",
-                        "url": form_url[:200],
+                        "url": form_url,
                         "detail": f"Tag: {tag} persisted in response",
                         "confidence": "confirmed",
                     })
@@ -84,25 +84,41 @@ class StoredXSSHunter:
                         form_findings.append({
                             "type": "stored_xss",
                             "title": "Stored XSS",
-                            "url": form_url[:200],
+                            "url": form_url,
                             "detail": "XSS payload persisted. Use callback collab to confirm.",
                             "confidence": "suspected",
                         })
             return form_findings
 
-        tasks = []
+        # Dedup form URL lintas target: 30 URL di host yang sama membangun
+        # 11 form identik berkali-kali (330 coroutine → ≤11 unik/host) +
+        # semaphore 10 — komentar "throttle" dulu tak ada kodenya, semuanya
+        # langsung mengerumuni gate engine bersama modul lain.
+        form_urls = []
+        seen = set()
         for url in self.target_urls[:30]:
             parsed = urlparse(url)
             base = f"{parsed.scheme}://{parsed.netloc}"
-
             for form_path in self.FORMS:
                 form_url = base + form_path
-                tasks.append(_test_form(form_url))
+                if form_url not in seen:
+                    seen.add(form_url)
+                    form_urls.append(form_url)
 
-        # We throttle concurrent form submissions to not overwhelm the engine
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        sem = asyncio.Semaphore(10)
+
+        async def _limited(form_url: str) -> List[Dict]:
+            async with sem:
+                return await _test_form(form_url)
+
+        results = await asyncio.gather(
+            *(_limited(u) for u in form_urls), return_exceptions=True)
         for res in results:
             if isinstance(res, list) and res:
                 findings.extend(res)
+            elif isinstance(res, BaseException):
+                # Was silently dropped — crashed probes looked like "form not found".
+                w(f"stored-xss probe crashed: "
+                  f"{res.__class__.__name__}: {str(res)[:80]}")
 
         return findings

@@ -58,26 +58,45 @@ async def run_app_analysis(
         try:
             spec_url = f"{seed_url.rstrip('/')}{sp}"
             resp = await async_engine.ahttp_send(spec_url, timeout=5) if async_engine else None
-            if resp and resp.status_code == 200 and ("json" in resp.content_type.lower() or "swagger" in resp.text.lower() or "openapi" in resp.text.lower()):
-                spec_res = api_parser.parse_spec(resp.text, spec_url)
-                if spec_res.get("endpoints"):
-                    from core.ui import s
-                    s(f"API SPEC INGESTION: Auto-parsed OpenAPI Spec ({len(spec_res['endpoints'])} endpoints)")
-                    urls.extend(spec_res["endpoints"])
-                    for p_path, p_keys in spec_res.get("params", {}).items():
-                        merge_params(params, p_path, p_keys)
-                    break
-        except Exception:
-            pass
+            # ahttp_send mengembalikan DICT — akses .status_code/.text pada
+            # dict selalu AttributeError dan ditelan senyap, jadi ingest
+            # Swagger/OpenAPI tidak pernah bekerja (dead code).
+            if resp and resp.get("status") == 200:
+                body = resp.get("body", "") or ""
+                content_type = str(resp.get("headers", {}).get("content-type", "")).lower()
+                if ("json" in content_type or "swagger" in body[:500].lower()
+                        or "openapi" in body[:500].lower()):
+                    spec_res = api_parser.parse_spec(body, spec_url)
+                    if spec_res.get("endpoints"):
+                        from core.ui import s
+                        s(f"API SPEC INGESTION: Auto-parsed OpenAPI Spec ({len(spec_res['endpoints'])} endpoints)")
+                        urls.extend(spec_res["endpoints"])
+                        for p_path, p_keys in spec_res.get("params", {}).items():
+                            merge_params(params, p_path, p_keys)
+                        break
+        except Exception as e:
+            from core.ui import w
+            w(f"OpenAPI spec fetch/parse failed for {sp}: "
+              f"{e.__class__.__name__}: {str(e)[:80]}")
 
     async def _run_katana_task():
         try:
+            from core.proxy_manager import get_global_proxy_manager
+            pm = get_global_proxy_manager()
+            active_proxy = pm.current_proxy if pm and pm.current_proxy else None
             res = await asyncio.wait_for(
-                asyncio.to_thread(run_katana, seed_url, timeout=60, policy=policy),
+                asyncio.to_thread(run_katana, seed_url, timeout=60,
+                                  policy=policy, proxy=active_proxy),
                 timeout=60
             )
             return res or {"endpoints": [], "params": []}
-        except (asyncio.TimeoutError, Exception):
+        except asyncio.TimeoutError:
+            from core.ui import w
+            w("Katana crawl timed out after 60s — falling back to DeepCrawler")
+            return {"endpoints": [], "params": []}
+        except Exception as e:
+            from core.ui import w
+            w(f"Katana crawl failed: {e.__class__.__name__}: {str(e)[:80]} — falling back to DeepCrawler")
             return {"endpoints": [], "params": []}
 
     async def _run_browser_recon_task():

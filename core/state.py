@@ -7,9 +7,18 @@ from urllib.parse import urlparse
 _MULTI_PART_TLD = frozenset({
     "co.uk", "com.au", "co.id", "net.id", "or.id", "web.id", "ac.id",
     "sch.id", "go.id", "mil.id", "biz.id", "my.id",
-    "com.br", "co.jp", "co.in", "com.sg", "com.my", "co.nz", "co.za",
+    "com.br", "co.jp", "co.in", "com.sg", "com.my", "com.nz", "co.za",
     "com.mx", "com.tr", "com.tw", "com.hk", "com.cn", "com.ar", "com.pl",
 })
+
+
+def _etld1(host: str) -> str:
+    """Registrable-domain (eTLD+1) heuristic for sibling-host matching."""
+    parts = host.split(".")
+    return (".".join(parts[-3:])
+            if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_PART_TLD
+            else ".".join(parts[-2:]))
+
 
 class SessionManager:
     """
@@ -62,18 +71,11 @@ class SessionManager:
             # (api.example.com vs www.example.com): parent-child suffix
             # matching cannot relate them — compare eTLD+1 instead.
             if host:
-                parts = host.split(".")
-                e = (".".join(parts[-3:])
-                     if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_PART_TLD
-                     else ".".join(parts[-2:]))
+                e = _etld1(host)
                 if "." in e:
                     for key in sorted(mapping):
                         k = key.lower().split(":")[0]
-                        kp = k.split(".")
-                        ke = (".".join(kp[-3:])
-                              if len(kp) >= 3 and ".".join(kp[-2:]) in _MULTI_PART_TLD
-                              else ".".join(kp[-2:]))
-                        if ke == e:
+                        if _etld1(k) == e:
                             return mapping[key]
             return None
 
@@ -97,10 +99,10 @@ class SessionManager:
     def auth_headers_for(self, domain: str) -> Dict[str, str]:
         """Authorization + Cookie headers best matching domain.
 
-        Lookup order: exact key -> suffix match (either direction) -> sorted
-        first entry. Never raw dict-iteration order (the old callers took
-        whichever token happened to come first/last, silently authenticating
-        every target with the wrong domain's credentials).
+        Lookup order: exact key -> suffix match (either direction) -> eTLD+1
+        sibling match. NEVER a blind sorted-first fallback (the old behavior
+        attached whichever domain's credentials sat first — kredensial salah
+        tempat ke target yang tak cocok; kontrak inject_auth melarang ini).
         """
         host = (domain or "").strip().lower().split(":")[0]
 
@@ -113,7 +115,14 @@ class SessionManager:
                 k = key.lower().split(":")[0]
                 if host and (host.endswith("." + k) or k.endswith("." + host)):
                     return mapping[key]
-            return mapping[sorted(mapping)[0]]
+            if host:
+                e = _etld1(host)
+                if "." in e:
+                    for key in sorted(mapping):
+                        k = key.lower().split(":")[0]
+                        if _etld1(k) == e:
+                            return mapping[key]
+            return None
 
         with self._lock:
             token = _best(self.auth_tokens)
@@ -125,3 +134,33 @@ class SessionManager:
         if cookie_dict:
             headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookie_dict.items())
         return headers
+
+    def mirror_host(self, src_host: str, dst_host: str) -> None:
+        """Duplicate auth material from src_host to dst_host (exact →
+        suffix → eTLD+1 match on src). Dipakai saat target di-rewrite ke
+        origin IP: tanpa key IP di auth_tokens/cookies, inject_auth tak
+        menemukan kredensial dan semua request origin-IP jadi anonim."""
+        src = (src_host or "").strip().lower().split(":")[0]
+        dst = (dst_host or "").strip().lower().split(":")[0]
+        if not src or not dst or src == dst:
+            return
+
+        def _find(mapping):
+            if src in mapping:
+                return mapping[src]
+            for key in sorted(mapping):
+                k = key.lower().split(":")[0]
+                if src.endswith("." + k) or k.endswith("." + src):
+                    return mapping[key]
+            e = _etld1(src)
+            if "." in e:
+                for key in sorted(mapping):
+                    if _etld1(key.lower().split(":")[0]) == e:
+                        return mapping[key]
+            return None
+
+        with self._lock:
+            for mapping in (self.auth_tokens, self.cookies):
+                value = _find(mapping)
+                if value is not None:
+                    mapping[dst] = value

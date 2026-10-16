@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from core.async_network import AsyncNetworkEngine
+from core.ui import w
 
 
 async def scan_host_header(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:
@@ -17,11 +18,11 @@ async def scan_host_header(url: str, engine: AsyncNetworkEngine, session_manager
     # Test 1: Basic Host header reflection
     evil_host = "evil.attacker.com"
     r = await engine.ahttp_send(url, headers={"Host": evil_host}, timeout=10, state_context=session_manager)
-    if r["status"] > 0:
+    if r.get("status", 0) > 0:
         body = r.get("body", "") or ""
         if evil_host in body or evil_host in str(r.get("headers", {})):
             findings.append({"type": "host_header_injection", "title": "Host Header Injection",
-                             "url": url[:200], "detail": f"Host: {evil_host} reflected in response",
+                             "url": url, "detail": f"Host: {evil_host} reflected in response",
                              "confidence": "confirmed"})
 
     # Test 2: Password reset poisoning
@@ -35,7 +36,7 @@ async def scan_host_header(url: str, engine: AsyncNetworkEngine, session_manager
             body = r.get("body", "") or ""
             if evil_host in body:
                 return {"type": "password_reset_poisoning", "title": "Password Reset Poisoning",
-                        "url": target[:200], "detail": f"Host: {evil_host} — reset link poisoned",
+                        "url": target, "detail": f"Host: {evil_host} — reset link poisoned",
                         "confidence": "confirmed"}
         return None
     
@@ -43,7 +44,11 @@ async def scan_host_header(url: str, engine: AsyncNetworkEngine, session_manager
     reset_tasks = [_test_reset_path(path) for path in reset_paths]
     reset_results = await asyncio.gather(*reset_tasks, return_exceptions=True)
     for r in reset_results:
-        if r and not isinstance(r, Exception):
+        if isinstance(r, BaseException):
+            # Was silently dropped — a crashed path looked like "not vulnerable".
+            w(f"host-header reset path probe crashed: "
+              f"{r.__class__.__name__}: {str(r)[:80]}")
+        elif isinstance(r, dict):
             findings.append(r)
 
     return findings
