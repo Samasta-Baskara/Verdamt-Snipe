@@ -10,13 +10,6 @@ from core.host_ratelimit import HostRateLimiter
 
 
 class TestGhostModeAsync(unittest.IsolatedAsyncioTestCase):
-    async def test_ghost_mode_jitter(self):
-        GhostMode.ENABLED = True
-        GhostMode.JITTER_RANGE = (0.01, 0.05)
-        # Verify apply_jitter is coroutine and doesn't throw
-        await GhostMode.apply_jitter()
-        GhostMode.ENABLED = False
-
     def test_ghost_mode_stealth_headers(self):
         headers = GhostMode.get_stealth_headers("test.com")
         self.assertEqual(headers["Host"], "test.com")

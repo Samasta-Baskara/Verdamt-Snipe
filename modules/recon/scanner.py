@@ -107,40 +107,6 @@ class SubdomainFinder:
         p(f"Live Subdomains: {G}{len(valid)}{N}")
         return sorted(valid)
 
-def probe_seed_url(seed_url, http_client=None) -> Dict:
-    http = http_client or HTTPClient(timeout=15, follow_redirects=True)
-    try:
-        resp = http.request("GET", seed_url, follow_redirects=True)
-    except Exception as exc:
-        print(f"[-] failed seed probe {seed_url}: {exc}")
-        return None
-
-    if not (200 <= resp.status_code <= 499):
-        return None
-
-    parsed = urlparse(str(resp.url))
-    title = HTTPProber._extract_title(resp.text)
-    headers = dict(resp.headers or {})
-    service = {
-        "url": seed_url.rstrip("/"),
-        "final_url": str(resp.url).rstrip("/"),
-        "host": parsed.hostname or urlparse(seed_url).hostname or "",
-        "port": parsed.port or (443 if parsed.scheme == "https" else 80),
-        "scheme": parsed.scheme or urlparse(seed_url).scheme,
-        "status": resp.status_code,
-        "status_code": resp.status_code,
-        "server": headers.get("server", ""),
-        "content_type": headers.get("content-type", ""),
-        "title": title,
-        "tech": headers.get("server", "Unknown") or "Unknown",
-        "headers": headers,
-        "body": resp.text,
-        "waf": [],
-    }
-    print(f"[+] Seed URL aktif: {service['final_url']}")
-    return service
-
-
 import asyncio
 import httpx
 

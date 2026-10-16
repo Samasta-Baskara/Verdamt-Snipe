@@ -279,11 +279,6 @@ setTimeout(() => {{
         }
 
     @staticmethod
-    def generate_curl(finding: Dict) -> str:
-        """Backwards compatibility helper."""
-        return PoCGenerator.generate_poc(finding)["code"]
-
-    @staticmethod
     def generate_steps(finding: Dict, tech_stack: List[str] = None) -> List[Dict]:
         url = finding.get("url", "")
         ftype = finding.get("type", "")

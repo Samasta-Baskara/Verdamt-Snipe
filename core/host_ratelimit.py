@@ -44,7 +44,6 @@ class HostRateLimiter:
 
     def __init__(self, default_max_concurrent: int = 30, backoff_base: float = 2.0):
         self._lock = threading.Lock()
-        self._async_lock = asyncio.Lock()
         self._hosts: dict[str, _HostState] = {}
         self._default_max = default_max_concurrent
         self._backoff_base = backoff_base
@@ -115,18 +114,6 @@ class HostRateLimiter:
         if state is None:
             return False
         return state.backoff_until > time.time()
-
-    def set_max_concurrent(self, host: str, max_n: int):
-        """Dynamically adjust max concurrent for a host.
-
-        Note: Does NOT replace the semaphore (would orphan waiters).
-        Backoff timing is the primary throttling mechanism.
-        """
-        state = self._get_or_create(host)
-        new_max = max(1, min(max_n, 500))
-        state.max_concurrent = new_max
-
-    # Internal backoff logic
 
     def _handle_429(self, state: _HostState):
         """Exponential backoff on rate limit."""

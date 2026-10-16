@@ -108,10 +108,6 @@ class TestNewFlagsParse(unittest.TestCase):
 
 
 class TestDorkerFastBail(unittest.TestCase):
-    @staticmethod
-    def _in_tmpdir():
-        return tempfile.TemporaryDirectory()
-
     def test_captcha_block_detected_and_queries_exported(self):
         from modules.recon import dorking as dk
         captcha = {"status": 429,

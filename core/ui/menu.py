@@ -167,39 +167,6 @@ class Spinner:
         if not self._running:
             self.start()
 
-def loading_animation(stop_flag=None, timeout=30):
-    """Progress bar style loading animation using rich."""
-    start = time.time()
-
-    # Phase 1: Quick initialization steps
-    init_steps = [
-        "Loading modules...",
-        "Initializing async engine...",
-        "Warming up TLS stack...",
-        "Ready to engage.",
-    ]
-
-    with Progress(
-        SpinnerColumn(spinner_name="dots", style="magenta"),
-        TextColumn("  [bold cyan]{task.description}[/]"),
-        BarColumn(bar_width=40, complete_style="magenta", finished_style="green", pulse_style="cyan"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True
-    ) as progress:
-        task = progress.add_task(init_steps[0], total=len(init_steps))
-        for idx, step in enumerate(init_steps):
-            progress.update(task, description=step, completed=idx)
-            time.sleep(random.uniform(0.05, 0.15))
-        progress.update(task, completed=len(init_steps))
-
-    elapsed = time.time() - start
-    console.print(f"  [bold green]{_CHECK}[/] [white]Engine initialized[/] [bright_black]({elapsed:.1f}s)[/]")
-    print()
-
-
-# INTERACTIVE TUI
-
 def draw_interactive_menu(target, settings, selected_mode=None):
     """Draw the interactive TUI using Rich panels."""
     if os.name == 'posix':

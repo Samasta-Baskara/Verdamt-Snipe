@@ -9,12 +9,11 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qsl, urlencode
 from pathlib import Path
 
-from core.ui import print_banner, loading_animation, ph, i, w, s, Spinner, G, Y, R, C, W, N, B, M, D, GY, O, ScanDashboard
+from core.ui import print_banner, ph, i, w, s, Spinner, G, Y, R, C, W, N, B, M, D, GY, O, ScanDashboard
 from core.ui import draw_interactive_menu, draw_help_screen, draw_confirm_bar, _MODES, _IMPERSONATE_OPTS
 from core.network import GhostMode
 from core.scope import ScopeGuard
 from core.policy import ScanPolicy
-from core.external_tools import print_tool_status
 from core.state import SessionManager
 from core.async_network import AsyncNetworkEngine
 from core.project import ProjectState, sanitize_filename
@@ -30,7 +29,6 @@ from runners.vuln_assault import run_vuln_assault
 from runners.full_assault import run_full_assault
 from runners.poison import run_poison_assault
 from core.camouflage import CamouflageBrowser
-from core.path_obfuscator import PathObfuscator
 from core.proxy_manager import setup_proxy, get_global_proxy_manager
 
 VERSION = "1.4.5 - NEXUS"
@@ -726,9 +724,6 @@ async def async_main():
         camo = CamouflageBrowser(async_engine)
         camo_stats = await camo.warm_up(seed_url, num_visits=3)
         s(f"Camouflage: visited {len(camo.visited)} pages — session looks human")
-
-    # Path obfuscator instance (available for all modes)
-    path_obf = PathObfuscator()
 
     if impersonate_browser:
         from core.curl_cffi_transport import CURL_CFFI_AVAILABLE, get_impersonate_target

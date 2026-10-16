@@ -25,14 +25,6 @@ class AdaptivePacingSystem:
         if self.current_delay > 0:
             await asyncio.sleep(self.current_delay)
 
-    def record_latency(self, latency: float):
-        self.latency_history.append(latency)
-        if len(self.latency_history) > 20:
-            self.latency_history.pop(0)
-        avg_latency = sum(self.latency_history) / len(self.latency_history)
-        if latency <= avg_latency * 1.2:
-            self.current_delay = max(self.min_delay, self.current_delay - 0.01)
-
     def trigger_backoff(self):
         self.current_delay = min(self.max_delay, self.current_delay * 2)
 
@@ -162,27 +154,12 @@ class CircuitBreaker:
                 )
                 h["cooldown_until"] = now + cooldown
 
-    def get_state(self, hostname: str) -> CircuitState:
-        """Get current circuit state for a host."""
-        return self._get_host(hostname)["state"]
-
     def get_cooldown_remaining(self, hostname: str) -> float:
         """Seconds remaining in cooldown (0 if not in OPEN state)."""
         h = self._get_host(hostname)
         if h["state"] != CircuitState.OPEN:
             return 0.0
         return max(0.0, h["cooldown_until"] - time.time())
-
-    def get_stats(self, hostname: str) -> dict:
-        """Get circuit breaker stats for a host."""
-        h = self._get_host(hostname)
-        return {
-            "state": h["state"].value,
-            "consecutive_fails": h["consecutive_fails"],
-            "total_fails": h["total_fails"],
-            "cooldown_remaining": self.get_cooldown_remaining(hostname),
-            "cooldown_multiplier": h["cooldown_multiplier"],
-        }
 
     def reset(self, hostname: str = None):
         """Reset circuit breaker state."""

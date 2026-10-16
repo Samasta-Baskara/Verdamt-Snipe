@@ -45,20 +45,6 @@ BENIGN_PATHS = [
     "/search",
 ]
 
-# Common search queries that real users type
-SEARCH_QUERIES = [
-    "beranda",
-    "kontak",
-    "layanan",
-    "tentang",
-    "informasi",
-    "bantuan",
-    "cari",
-    "login",
-    "daftar",
-]
-
-
 class CamouflageBrowser:
     """Simulate normal browsing behavior before scanning.
     
@@ -159,15 +145,4 @@ class CamouflageBrowser:
                 ".pdf", ".zip", ".tar", ".gz",
             ])
         ]
-
-    def get_stats(self) -> Dict:
-        """Get camouflage browsing stats."""
-        return {
-            "pages_visited": len(self.visited),
-            "urls": [v["url"] for v in self.visited],
-            "avg_time": (
-                sum(v["time"] for v in self.visited) / len(self.visited)
-                if self.visited else 0
-            ),
-        }
 

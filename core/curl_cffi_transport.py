@@ -53,10 +53,6 @@ BROWSER_TARGETS = {
     "opera":    ["chrome"],  # Opera uses Chrome engine
 }
 
-# Default: random Chrome version (most common, least suspicious)
-DEFAULT_TARGET = "chrome"
-
-
 def get_impersonate_target(browser: str = None) -> str:
     """Get a specific or random impersonate target.
 
@@ -100,10 +96,6 @@ class CurlCffiSession:
         if proxy:
             self._session.proxies = {"http": proxy, "https": proxy}
         self._target = target
-
-    @property
-    def impersonate_target(self) -> str:
-        return self._target
 
     def request(
         self,
@@ -149,15 +141,6 @@ class CurlCffiSession:
                 "waf": [],
             }
 
-    def get(self, url, **kwargs):
-        return self.request("GET", url, **kwargs)
-
-    def post(self, url, **kwargs):
-        return self.request("POST", url, **kwargs)
-
-    def put(self, url, **kwargs):
-        return self.request("PUT", url, **kwargs)
-
     def close(self):
         self._session.close()
 
@@ -196,10 +179,6 @@ class CurlCffiAsyncSession:
         if proxy:
             self._session.proxies = {"http": proxy, "https": proxy}
         self._target = target
-
-    @property
-    def impersonate_target(self) -> str:
-        return self._target
 
     async def request(
         self,

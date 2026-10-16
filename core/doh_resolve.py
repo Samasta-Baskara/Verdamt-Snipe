@@ -70,33 +70,3 @@ def doh_resolve(domain: str, proxy: str = None) -> List[str]:
         return []
 
 
-async def doh_resolve_async(domain: str, proxy: str = None) -> List[str]:
-    """Resolve domain to IPs via DNS-over-HTTPS (async).
-    
-    Prevents DNS query from leaking to ISP/local resolver.
-    """
-    return await asyncio.to_thread(doh_resolve, domain, proxy)
-
-
-def doh_check_leak(proxy: str = None) -> dict:
-    """Check if DNS queries are leaking by comparing DoH vs local resolution.
-    
-    Returns dict with leak status and details.
-    """
-    test_domain = "cloudflare.com"
-    
-    # Resolve via DoH (through proxy)
-    doh_ips = doh_resolve(test_domain, proxy=proxy)
-    
-    # Resolve via local DNS (without proxy)
-    try:
-        local_ips = socket.gethostbyname_ex(test_domain)[2]
-    except Exception:
-        local_ips = []
-    
-    return {
-        "doh_ips": doh_ips,
-        "local_ips": local_ips,
-        "leak_detected": len(local_ips) > 0 and local_ips != doh_ips,
-        "recommendation": "Use DoH or route DNS through proxy" if local_ips else "OK",
-    }

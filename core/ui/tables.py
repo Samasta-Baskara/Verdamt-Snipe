@@ -1224,12 +1224,6 @@ class ScanDashboard:
         # Rendering is handled by Rich Live's background refresh thread.
         pass
 
-    def _fmt_elapsed(self) -> str:
-        elapsed = time.time() - self.start_time
-        mins = int(elapsed) // 60
-        secs = int(elapsed) % 60
-        return f"{mins:02d}:{secs:02d}"
-
     # ── header ─────────────────────────────────────────────────────────────
 
     def _build_header(self, width: int, target: str, mode: str, status: str,
@@ -1851,39 +1845,3 @@ def draw_table(headers, rows, padding=2, title=None):
     console.print(table)
 
 
-def progress_bar(iterable, total=0, prefix='', length=30):
-    """Simple progress bar wrapping an iterable using rich.
-
-    When a ScanDashboard is active, yields items normally but routes
-    progress updates through the dashboard instead of creating a
-    separate Rich Progress bar.
-    """
-    if not total:
-        total = 100 # fallback
-
-    if ScanDashboard.active():
-        dashboard = ScanDashboard.get()
-        count = 0
-        for item in iterable:
-            yield item
-            count += 1
-            if count % max(1, total // 50) == 0 or count == total:
-                dashboard.set_activity(f"{prefix} {count}/{total}")
-        dashboard.set_activity("")
-        dashboard.log_event(f"{_CHECK} {prefix} {total}/{total}", "green", kind="ok")
-    else:
-        with Progress(
-            SpinnerColumn(spinner_name="dots", style="magenta"),
-            TextColumn(f"  [bright_black]{prefix}[/]"),
-            BarColumn(bar_width=length, complete_style="cyan", finished_style="green"),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            TimeElapsedColumn(),
-            console=console,
-            transient=True
-        ) as progress:
-            task = progress.add_task("Working", total=total)
-            for item in iterable:
-                yield item
-                progress.update(task, advance=1)
-
-        console.print(f"  [bold green]{_CHECK}[/] [bright_black]{prefix}[/] [white]{total}/{total}[/]")

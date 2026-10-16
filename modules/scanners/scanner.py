@@ -727,16 +727,6 @@ class VulnVerifier:
 class HeuristicVulnEngine:
     """Advanced risk analysis for WAF and variables."""
 
-    RISKY_PARAMS = ["id", "url", "file", "path", "page", "cmd", "exec", "query", "search", "lang", "redirect", "dest", "to", "callback"]
-
-    @staticmethod
-    def analyze_param_risk(param: str) -> int:
-        if param.lower() in HeuristicVulnEngine.RISKY_PARAMS:
-            return 9
-        if any(p in param.lower() for p in ["key", "token", "pass"]):
-            return 7
-        return 3
-
     @staticmethod
     def waf_risk_test(url: str, wafs: List[str], policy=None) -> Dict:
         if not wafs:

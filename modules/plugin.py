@@ -55,15 +55,6 @@ class PluginManager:
         self._plugins = loaded
         return loaded
 
-    def reload(self):
-        """Force re-discovery on next call."""
-        self._plugins = []
-
-    @property
-    def count(self) -> int:
-        return len(self._plugins)
-
-
 # Integration helper
 
 async def run_plugins(state) -> list[dict]:

@@ -320,14 +320,6 @@ class PoisonState:
                 self.findings.append(f)
                 self._finding_keys.add(key)
 
-    async def extend_findings_async(self, flist: list):
-        async with self._lock:
-            for f in flist:
-                key = self._finding_key(f)
-                if key not in self._finding_keys:
-                    self.findings.append(f)
-                    self._finding_keys.add(key)
-
     def extend_findings(self, flist: list):
         with self._sync_lock:
             for f in flist:
@@ -335,14 +327,6 @@ class PoisonState:
                 if key not in self._finding_keys:
                     self.findings.append(f)
                     self._finding_keys.add(key)
-
-    async def add_urls_async(self, urls: list):
-        if self.scope_guard:
-            urls = self.scope_guard.filter_urls(urls)
-        async with self._lock:
-            new_urls = set(urls) - self.scan_urls
-            self.scan_urls.update(new_urls)
-            return new_urls
 
     def add_urls(self, urls: list):
         with self._sync_lock:

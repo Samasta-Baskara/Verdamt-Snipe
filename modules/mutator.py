@@ -406,7 +406,4 @@ class PayloadMutator:
         return " | ".join(anomalies) if anomalies else None
 
 
-# Singleton instances for different aggressiveness levels
 mutator = PayloadMutator(aggressiveness=2)
-mutator_light = PayloadMutator(aggressiveness=1)
-mutator_heavy = PayloadMutator(aggressiveness=3)

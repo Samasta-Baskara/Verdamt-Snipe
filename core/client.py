@@ -121,11 +121,6 @@ class GhostMode:
         if GhostMode.ENABLED:
             time.sleep(random.uniform(*GhostMode.JITTER_RANGE))
 
-    @staticmethod
-    async def apply_jitter():
-        if GhostMode.ENABLED:
-            await asyncio.sleep(random.uniform(*GhostMode.JITTER_RANGE))
-
     @classmethod
     def should_stealth(cls, host: str) -> bool:
         """Check if stealth headers should be used for a given host.
@@ -306,91 +301,6 @@ class HTTPClient:
                 next_url = urljoin(url, location)
                 next_method = "GET" if status_code in (301, 302, 303) else method
                 return self._raw_socket_request_inner(next_method, next_url, kwargs, redirects_left - 1)
-
-        return HTTPResponse(
-            status_code=status_code, headers=headers,
-            text=self._to_text(body), content=body,
-            url=final_url, elapsed=time.time() - start,
-        )
-
-    async def _async_raw_socket_request(self, method, url, **kwargs) -> HTTPResponse:
-        return await self._async_raw_socket_request_inner(method, url, kwargs, redirects_left=5)
-
-    async def _async_raw_socket_request_inner(self, method, url, kwargs, redirects_left) -> HTTPResponse:
-        start = time.time()
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            return HTTPResponse(0, {}, "", b"", url, time.time() - start, "unsupported_url")
-
-        host = parsed.hostname
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
-        headers = dict(kwargs.get("headers") or {})
-        data = kwargs.get("data") or kwargs.get("content") or b""
-        if isinstance(data, str):
-            data = data.encode()
-        elif isinstance(data, dict):
-            data = urlencode(data).encode()
-            headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
-
-        req_headers = {
-            "Host": host + (f":{port}" if port not in (80, 443) else ""),
-            "User-Agent": headers.pop("User-Agent", headers.pop("user-agent", "Mozilla/5.0")),
-            "Accept": headers.pop("Accept", headers.pop("accept", "*/*")),
-            "Connection": "close",
-        }
-        req_headers.update(headers)
-        if data:
-            req_headers["Content-Length"] = str(len(data))
-
-        try:
-            crlf = "\r\n"
-            request = f"{method.upper()} {path} HTTP/1.1{crlf}"
-            request += crlf.join(f"{k}: {v}" for k, v in req_headers.items())
-            request += crlf * 2
-            request_bytes = request.encode() + data
-
-            if parsed.scheme == "https":
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port, ssl=ctx),
-                    timeout=self.timeout
-                )
-            else:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port),
-                    timeout=self.timeout
-                )
-
-            writer.write(request_bytes)
-            await asyncio.wait_for(writer.drain(), timeout=self.timeout)
-
-            raw = b""
-            MAX_RESPONSE_SIZE = 50 * 1024 * 1024  # 50MB safety limit
-            while True:
-                chunk = await asyncio.wait_for(reader.read(65536), timeout=self.timeout)
-                if not chunk:
-                    break
-                raw += chunk
-                if len(raw) > MAX_RESPONSE_SIZE:
-                    break
-            writer.close()
-            await writer.wait_closed()
-        except Exception as exc:
-            return HTTPResponse(0, {}, "", b"", url, time.time() - start, str(exc))
-
-        status_code, headers, body = self._parse_raw_response(raw)
-        body = self._decode_content(body, headers)
-        final_url = url
-
-        if redirects_left > 0 and status_code in (301, 302, 303, 307, 308):
-            location = headers.get("location")
-            if location:
-                next_url = urljoin(url, location)
-                next_method = "GET" if status_code in (301, 302, 303) else method
-                return await self._async_raw_socket_request_inner(next_method, next_url, kwargs, redirects_left - 1)
 
         return HTTPResponse(
             status_code=status_code, headers=headers,

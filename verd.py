@@ -15,13 +15,11 @@ if sys.version_info < (3, 12):
     sys.exit(1)
 
 from core.cli_parser import (  # noqa: F401  (re-export for tests/legacy)
-    VERSION, AUTHOR, VULN_THREADS,
     parse_target, parse_mode, parse_scan_args, parse_cli_headers,
-    parse_scan_policy_options, _flag_value, _resolve_secret,
-    _VALUE_FLAGS, _SHORT_ALIASES, interactive_mode_select,
-    seed_session_headers, _active_proxy, phase_verify_report,
-    async_main, main_cli, _execute_mode,
-    _run_app_mode, _run_assault_mode, _run_poisoning_mode,
+    parse_scan_policy_options, _flag_value,
+    _VALUE_FLAGS, _SHORT_ALIASES,
+    seed_session_headers, phase_verify_report,
+    main_cli, _execute_mode,
 )
 from core.ui import R, N  # noqa: F401
 

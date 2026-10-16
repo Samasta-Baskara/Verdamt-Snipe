@@ -46,7 +46,6 @@ class ProxyManager:
         self.rotation_interval: int = 0  # 0 = disabled
         self.dead_proxies: set = set()
         self.proxy_stats: Dict[str, Dict] = {}  # proxy → {requests, errors, last_used}
-        self._enabled: bool = False
 
     def load_from_file(self, path: str) -> int:
         """Load proxies from file (one per line).
@@ -83,7 +82,6 @@ class ProxyManager:
                 self.proxy_stats.update(tmp_stats)
                 if not self.current_proxy:
                     self.current_proxy = self.proxies[0]
-                    self._enabled = True
 
         return loaded
 
@@ -94,7 +92,6 @@ class ProxyManager:
             with self._lock:
                 self.proxies.insert(0, proxy)
                 self.current_proxy = proxy
-                self._enabled = True
             return True
         return False
 
@@ -108,7 +105,6 @@ class ProxyManager:
                 }
                 if not self.current_proxy:
                     self.current_proxy = proxy
-                    self._enabled = True
             return True
         return False
 
@@ -156,34 +152,10 @@ class ProxyManager:
         self.current_proxy = self.proxies[0]
         return self.current_proxy
 
-    def rotate(self) -> Optional[str]:
-        """Switch to next proxy. Returns new proxy URL."""
-        with self._lock:
-            return self._rotate_locked()
-
-    def mark_dead(self, proxy: str = None):
-        """Mark a proxy as dead (will be skipped)."""
-        with self._lock:
-            proxy = proxy or self.current_proxy
-            if proxy:
-                self.dead_proxies.add(proxy)
-
     def get_current(self) -> Optional[str]:
         """Get current active proxy."""
         with self._lock:
             return self.current_proxy
-
-    def get_stats(self) -> Dict:
-        """Get proxy usage statistics."""
-        with self._lock:
-            return {
-                "total_proxies": len(self.proxies),
-                "dead_proxies": len(self.dead_proxies),
-                "current": self.current_proxy,
-                "requests": self.request_count,
-                "rotation_interval": self.rotation_interval,
-                "per_proxy": dict(self.proxy_stats),
-            }
 
     def set_env_vars(self, proxy: str = None):
         """Set environment variables so ALL tools use this proxy.
@@ -201,59 +173,6 @@ class ProxyManager:
         ]
         for var in env_vars:
             os.environ[var] = proxy
-
-    def clear_env_vars(self):
-        """Remove all proxy env vars."""
-        env_vars = [
-            "VERDAMT_PROXY", "ALL_PROXY", "HTTP_PROXY", "HTTPS_PROXY",
-            "http_proxy", "https_proxy", "all_proxy",
-        ]
-        for var in env_vars:
-            os.environ.pop(var, None)
-
-    async def health_check(self, proxy: str = None, timeout: float = 5.0) -> bool:
-        """Check if proxy is alive by attempting a SOCKS5/HTTP connect.
-        
-        Returns True if proxy is reachable.
-        """
-        proxy = proxy or self.current_proxy
-        if not proxy:
-            return False
-
-        try:
-            parsed = urlparse(proxy)
-            host = parsed.hostname
-            port = parsed.port or 1080
-
-            # Quick TCP connect test
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=timeout
-            )
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except Exception:
-            return False
-
-    async def health_check_all(self) -> Dict[str, bool]:
-        """Check all loaded proxies. Returns {proxy: is_alive}."""
-        proxies = list(self.proxies)
-        results = {}
-        for proxy in proxies:
-            alive = await self.health_check(proxy)
-            results[proxy] = alive
-            if not alive:
-                self.mark_dead(proxy)
-        return results
-
-    def get_random_alive(self) -> Optional[str]:
-        """Get a random alive proxy."""
-        with self._lock:
-            alive = [p for p in self.proxies if p not in self.dead_proxies]
-            if alive:
-                return random.choice(alive)
-            return self.current_proxy
 
     @staticmethod
     def _validate_proxy(proxy: str) -> bool:
@@ -291,7 +210,6 @@ def setup_proxy(
     proxy: str = None,
     proxy_file: str = None,
     rotate: int = 0,
-    check_health: bool = False,
     use_env: bool = True,
 ) -> ProxyManager:
     """One-liner proxy setup. Returns configured ProxyManager.
@@ -300,7 +218,6 @@ def setup_proxy(
         proxy: Single proxy URL (socks5://ip:port)
         proxy_file: File with proxy list
         rotate: Rotate every N requests (0=disabled)
-        check_health: Run health check on load
     
     Returns:
         Configured ProxyManager with env vars set.

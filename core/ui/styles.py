@@ -108,25 +108,6 @@ _CLR_BG_ACCENT = "#1a1e26"
 def strip_ansi(text: str) -> str:
     return re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', text)
 
-def _side_by_side(left, right, lw=30, sep="  ", fallback=80):
-    tw = 80
-    try: tw = os.get_terminal_size().columns
-    except Exception: pass
-    if tw < fallback:
-        for l in left: print(l)
-        print()
-        for r in right: print(r)
-        return
-    mh = max(len(left), len(right))
-    lp = left + [""] * (mh - len(left))
-    rp = right + [""] * (mh - len(right))
-    for l, r in zip(lp, rp):
-        lc = strip_ansi(l)
-        pad = lw - len(lc)
-        if pad < 0: pad = 0
-        print(f"{l}{' '*pad}{sep}{r}")
-
-
 def _get_term_width():
     try:
         return os.get_terminal_size().columns
