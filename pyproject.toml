@@ -76,5 +76,6 @@ skip_covered = true
 # Floor tracks the measured baseline — coverage can only go up from
 # here; lowering this number requires an explicit commit.
 # 42: 2026-10-17 initial measurement; 49: detector/tool/runner waves;
-# 52: vuln-engine/auth/origin-hunter/external-tools wave.
-fail_under = 52
+# 52: vuln-engine/auth/origin-hunter/external-tools wave;
+# 54: DOM-XSS taint engine + runners-shared wave.
+fail_under = 54
