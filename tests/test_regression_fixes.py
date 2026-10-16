@@ -66,8 +66,8 @@ class TestCrashStillReports(unittest.TestCase):
     """Static contract of async_main's crash path."""
 
     def test_exception_is_held_until_after_verify_report(self):
-        from core import cli_parser
-        src = inspect.getsource(cli_parser.async_main)
+        from core import orchestrator
+        src = inspect.getsource(orchestrator.async_main)
         self.assertIn("mode_error = e", src,
                       "crash handler must hold the exception, not merge it")
         idx_report = src.index("await phase_verify_report")
@@ -80,7 +80,7 @@ class TestCrashStillReports(unittest.TestCase):
         self.assertNotIn("raise\n", handler)
 
     def test_execute_mode_accepts_new_knobs(self):
-        from core.cli_parser import _execute_mode
+        from core.modes import _execute_mode
         params = inspect.signature(_execute_mode).parameters
         self.assertIn("no_dork", params)
         self.assertFalse(params["no_dork"].default)

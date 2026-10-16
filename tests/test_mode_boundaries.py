@@ -30,9 +30,9 @@ class TestModeBoundaries(unittest.TestCase):
         self.assertIn("DeepCrawler", app)
 
     def test_katana_home_is_assault_class(self):
-        # Shared helper dipakai mode 3 (cli_parser), 4 (orchestrator),
-        # dan 5 (full assault).
-        self.assertIn("run_katana_phase", self._src("core/cli_parser.py"))
+        # Shared helper dipakai mode 3 (core/modes.py), 4 (poison
+        # orchestrator), dan 5 (full assault).
+        self.assertIn("run_katana_phase", self._src("core/modes.py"))
         self.assertIn("run_katana_phase",
                       self._src("runners/poison/orchestrator.py"))
         self.assertIn("run_katana_phase", self._src("runners/full_assault.py"))
@@ -43,7 +43,7 @@ class TestModeBoundaries(unittest.TestCase):
         for phase in ("Auto-Recon", "Katana Crawl", "Auto-App"):
             self.assertIn(phase, names)
         # Label ph() runtime harus memetakan ke stage yang sama.
-        cli = self._src("core/cli_parser.py")
+        cli = self._src("core/modes.py")
         for label in ("AUTO-RECON:", "KATANA CRAWL:", "AUTO-APP:"):
             self.assertIn(label, cli)
 
@@ -68,12 +68,12 @@ class TestModeBoundaries(unittest.TestCase):
         shared = self._src("runners/shared.py")
         self.assertIn("async def run_waf_origin_phase", shared)
         # Mode 2/3/5 memakai helper bersama; blok hunt_origin salinan hilang.
-        for rel in ("core/cli_parser.py", "runners/full_assault.py"):
+        for rel in ("core/modes.py", "core/orchestrator.py", "runners/full_assault.py"):
             self.assertNotIn("from modules.waf.origin_hunter import hunt_origin",
                              self._src(rel))
 
     def test_passive_gate_blocks_nuclei(self):
-        cli = self._src("core/cli_parser.py")
+        cli = self._src("core/modes.py")
         self.assertIn('"poisoning", "full", "nuclei"', cli)
 
 

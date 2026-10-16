@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Entry point — parsing + orchestration live in core.cli_parser (Tahap 2).
+"""Entry point — parsing lives in core.cli_parser, orchestration in
+core/orchestrator.py, mode runners in core/modes.py.
 
 Re-exports every name the test-suite imports via `from verd import ...`
 and keeps the `verd:main` console entry (pyproject.toml) working.
@@ -18,9 +19,10 @@ from core.cli_parser import (  # noqa: F401  (re-export for tests/legacy)
     parse_target, parse_mode, parse_scan_args, parse_cli_headers,
     parse_scan_policy_options, _flag_value,
     _VALUE_FLAGS, _SHORT_ALIASES,
-    seed_session_headers, phase_verify_report,
-    main_cli, _execute_mode,
+    seed_session_headers,
 )
+from core.modes import phase_verify_report, _execute_mode  # noqa: F401
+from core.orchestrator import main_cli  # noqa: F401
 from core.ui import R, N  # noqa: F401
 
 

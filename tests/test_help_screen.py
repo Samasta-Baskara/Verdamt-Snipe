@@ -19,7 +19,10 @@ from core.ui.banner import (_HELP_GROUPS, _HELP_LAUNCHER, _HELP_USAGE,
                             _MODES, mode_flag, print_banner)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CLI_SRC = (ROOT / "core" / "cli_parser.py").read_text()
+# The flag grammar spans two modules since the Tahap 3 split: parsing in
+# core/cli_parser.py, special-command/flag consumption in core/orchestrator.py.
+CLI_SRC = ((ROOT / "core" / "cli_parser.py").read_text()
+           + (ROOT / "core" / "orchestrator.py").read_text())
 LAUNCHER_SRC = (ROOT / "snipe").read_text()
 
 # `--flag` is the placeholder used in _flag_value's docstring, not a real flag.
