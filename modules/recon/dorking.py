@@ -1,12 +1,13 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import asyncio
 import re
 import time
 import random
 from urllib.parse import quote, urlparse
 from typing import List, Dict, Set
-from core.network import thttp
+from core.async_network import AsyncNetworkEngine
 from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C, B
 
 # GOOGLE DORK TEMPLATES
@@ -106,11 +107,12 @@ class GoogleDorker:
     )
 
     def __init__(self, domain: str, max_results: int = 50, delay: float = 1.0,
-                 budget_seconds: float = 25.0):
+                 budget_seconds: float = 25.0, engine: AsyncNetworkEngine = None):
         self.domain = domain
         self.max_results = max_results
         self.delay = delay  # Delay between requests to avoid rate limiting
         self.budget_seconds = budget_seconds
+        self.engine = engine  # None = private engine created in run()
         self.dorks = [t.format(domain=domain) for t in DORK_TEMPLATES]
         self.findings: List[Dict] = []
         self.discovered_urls: Set[str] = set()
@@ -118,6 +120,9 @@ class GoogleDorker:
         self.ddg_blocked = False
         self.net_errors = 0
         self.manual_dork_path: str = ""
+
+    async def _send(self, url: str, headers: Dict = None, timeout: float = 6) -> Dict:
+        return await self.engine.ahttp_send(url, headers=headers, timeout=timeout)
 
     @staticmethod
     def _is_block_page(status: int, body: str) -> bool:
@@ -127,7 +132,7 @@ class GoogleDorker:
         low = (body or "").lower()
         return any(m in low for m in GoogleDorker.BLOCK_MARKERS)
 
-    def _search_google(self, dork: str) -> List[str]:
+    async def _search_google(self, dork: str) -> List[str]:
         """Scrape Google search results for a dork query."""
         urls = []
         try:
@@ -137,7 +142,7 @@ class GoogleDorker:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.5",
             }
-            r = thttp(search_url, headers=headers, timeout=6)
+            r = await self._send(search_url, headers=headers)
             status = r.get("status", 0) or 0
             body = r.get("body") or ""
 
@@ -164,14 +169,14 @@ class GoogleDorker:
             self.net_errors += 1
         return urls
 
-    def _search_duckduckgo(self, dork: str) -> List[str]:
+    async def _search_duckduckgo(self, dork: str) -> List[str]:
         """Fallback: scrape DuckDuckGo (less aggressive anti-bot)."""
         urls = []
         try:
             # DuckDuckGo HTML version
             search_url = f"https://html.duckduckgo.com/html/?q={quote(dork)}"
             headers = {"User-Agent": random.choice(SEARCH_UAS)}
-            r = thttp(search_url, headers=headers, timeout=6)
+            r = await self._send(search_url, headers=headers)
             status = r.get("status", 0) or 0
             body = r.get("body") or ""
 
@@ -206,12 +211,22 @@ class GoogleDorker:
             self.manual_dork_path = ""
         return path
 
-    def run(self) -> Dict:
+    async def run(self) -> Dict:
         """Execute dorking — returns discovered URLs and dork results."""
         ph("GOOGLE DORKING: Passive Intelligence")
         i(f"Target: {W}{self.domain}{N}")
         i(f"Loaded {W}{len(self.dorks)}{N} dork templates")
 
+        private_engine = self.engine is None
+        if private_engine:
+            self.engine = AsyncNetworkEngine()
+        try:
+            return await self._run_inner()
+        finally:
+            if private_engine:
+                await self.engine.close()
+
+    async def _run_inner(self) -> Dict:
         # Phase 1: Try automated scraping (bounded by budget + block state)
         deadline = time.monotonic() + self.budget_seconds
         scrape_count = 0
@@ -234,12 +249,12 @@ class GoogleDorker:
             results = []
             if not self.google_blocked:
                 try:
-                    results = self._search_google(dork)
+                    results = await self._search_google(dork)
                 except Exception:
                     results = []
             if not results and not self.ddg_blocked:
                 try:
-                    results = self._search_duckduckgo(dork)
+                    results = await self._search_duckduckgo(dork)
                 except Exception:
                     results = []
 
@@ -265,7 +280,7 @@ class GoogleDorker:
                     break
 
             # Polite delay
-            time.sleep(random.uniform(0.1, 0.3))
+            await asyncio.sleep(random.uniform(0.1, 0.3))
 
             # Cap results
             if len(self.discovered_urls) >= self.max_results:

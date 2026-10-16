@@ -66,7 +66,7 @@ async def run_recon_intel(target: str, services, subs, base_urls, scope_guard,
             return {}
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(GoogleDorker(target).run),
+                GoogleDorker(target, engine=async_engine).run(),
                 timeout=35
             )
         except (asyncio.TimeoutError, Exception):

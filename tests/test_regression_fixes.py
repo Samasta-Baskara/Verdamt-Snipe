@@ -18,7 +18,7 @@ import inspect
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestNucleiDalfoxWarningPaths(unittest.TestCase):
@@ -106,18 +106,25 @@ class TestNewFlagsParse(unittest.TestCase):
         self.assertIn("--no-dork", flags)
 
 
-class TestDorkerFastBail(unittest.TestCase):
-    def test_captcha_block_detected_and_queries_exported(self):
+class TestDorkerFastBail(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _mock_engine(response):
+        engine = MagicMock()
+        engine.ahttp_send = AsyncMock(return_value=response)
+        engine.close = AsyncMock()
+        return engine
+
+    async def test_captcha_block_detected_and_queries_exported(self):
         from modules.recon import dorking as dk
         captcha = {"status": 429,
                    "body": "unusual traffic from your network — captcha",
                    "headers": {}}
+        engine = self._mock_engine(captcha)
         with tempfile.TemporaryDirectory() as tmp:
             cwd = os.getcwd()
             os.chdir(tmp)
             try:
-                with patch.object(dk, "thttp", return_value=captcha):
-                    r = dk.GoogleDorker("example.com").run()
+                r = await dk.GoogleDorker("example.com", engine=engine).run()
                 self.assertTrue(r["scrape_failed"])
                 self.assertTrue(r["manual_dork_path"])
                 self.assertTrue(os.path.exists(r["manual_dork_path"]))
@@ -127,19 +134,41 @@ class TestDorkerFastBail(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_budget_stops_run_even_without_blocks(self):
+    async def test_budget_stops_run_even_without_blocks(self):
         from modules.recon import dorking as dk
         empty_page = {"status": 200, "body": "<html>nothing</html>",
                       "headers": {}}
+        engine = self._mock_engine(empty_page)
         with tempfile.TemporaryDirectory() as tmp:
             cwd = os.getcwd()
             os.chdir(tmp)
             try:
-                dorker = dk.GoogleDorker("example.com", budget_seconds=0.0)
-                with patch.object(dk, "thttp", return_value=empty_page) as m:
-                    r = dorker.run()
+                dorker = dk.GoogleDorker("example.com", budget_seconds=0.0,
+                                         engine=engine)
+                r = await dorker.run()
                 self.assertTrue(r["scrape_failed"])
-                m.assert_not_called()  # budget checked before first request
+                engine.ahttp_send.assert_not_awaited()  # budget checked before first request
+            finally:
+                os.chdir(cwd)
+
+    async def test_private_engine_is_closed_but_injected_engine_is_not(self):
+        from modules.recon import dorking as dk
+        empty_page = {"status": 200, "body": "", "headers": {}}
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                # engine=None -> dorker owns a private engine and must close it
+                owned = self._mock_engine(empty_page)
+                with patch.object(dk, "AsyncNetworkEngine", return_value=owned):
+                    await dk.GoogleDorker("example.com", budget_seconds=0.0).run()
+                owned.close.assert_awaited_once()
+
+                # injected engine belongs to the caller — dorker must not close it
+                injected = self._mock_engine(empty_page)
+                await dk.GoogleDorker("example.com", budget_seconds=0.0,
+                                      engine=injected).run()
+                injected.close.assert_not_awaited()
             finally:
                 os.chdir(cwd)
 
