@@ -23,7 +23,7 @@ async def run_surface_scan(target: str, seed_url: str, scope_guard, proxy=None,
         try:
             sub_finder = SubdomainFinder(target)
             subs = await asyncio.wait_for(
-                asyncio.to_thread(sub_finder.run),
+                sub_finder.run(),
                 timeout=20
             )
         except (asyncio.TimeoutError, Exception):

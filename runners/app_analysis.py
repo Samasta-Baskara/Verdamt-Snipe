@@ -146,7 +146,7 @@ async def run_app_analysis(
     scan_urls = await validate_recon_urls(urls, scope_guard, async_engine, session_manager=session_manager)
 
     async def _run_param_extraction():
-        return await asyncio.to_thread(ParamExtractor(scan_urls).run)
+        return await ParamExtractor(scan_urls).run()
 
     async def _run_param_bruteforce():
         if not scan_urls: return []

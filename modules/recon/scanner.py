@@ -1,112 +1,124 @@
 import sys
 import os
-import threading
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import time
+import asyncio
 import re
 import socket
-import concurrent.futures
+import httpx
 from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
-from core.http_client import http_send, thttp
+from core.client import AsyncNetworkEngine
 from core.ui import ph, i, p, s, w, draw_table, Spinner, G, Y, R, M, N, GY, W, B
 
-RECON_THREADS = 10
 _CHECK = "✓"
 
 class SubdomainFinder:
-    def __init__(self, domain: str):
+    """Async passive-DNS subdomain enumeration (5 sources + DNS validation)."""
+
+    def __init__(self, domain: str, engine: AsyncNetworkEngine = None):
         self.domain = domain.lower().strip()
         self.subs: Set[str] = set()
-        self.lock = threading.Lock()
-    
-    def _crtsh(self):
+        self.engine = engine  # None = private engine created in run()
+
+    async def _fetch(self, url: str, timeout: int = 20) -> Dict:
+        return await self.engine.ahttp_send(url, timeout=timeout)
+
+    async def _crtsh(self):
         try:
-            r = http_send(f"https://crt.sh/?q=%25.{self.domain}&output=json", timeout=20)
+            r = await self._fetch(f"https://crt.sh/?q=%25.{self.domain}&output=json")
             if r["status"]==200:
                 for m in re.finditer(r'"name_value":"([^"]+)"', r["body"]):
-                    for s in m.group(1).split("\n"):
-                        s = s.strip().lower().replace("*.","")
-                        if s.endswith(self.domain) and s!=self.domain:
-                            with self.lock: self.subs.add(s)
+                    for sub in m.group(1).split("\n"):
+                        sub = sub.strip().lower().replace("*.","")
+                        if sub.endswith(self.domain) and sub!=self.domain:
+                            self.subs.add(sub)
         except Exception as e:
             w(f"crt.sh failed: {str(e)[:80]}")
     
-    def _hackertarget(self):
+    async def _hackertarget(self):
         try:
-            r = http_send(f"https://api.hackertarget.com/hostsearch/?q={self.domain}", timeout=20)
+            r = await self._fetch(f"https://api.hackertarget.com/hostsearch/?q={self.domain}")
             if r["status"]==200:
                 for ln in r["body"].split("\n"):
                     if "."+self.domain in ln:
                         s = ln.split(",")[0].strip().lower()
                         if s.endswith("."+self.domain):
-                            with self.lock: self.subs.add(s)
+                            self.subs.add(s)
         except Exception as e:
             w(f"hackertarget failed: {str(e)[:80]}")
     
-    def _bufferover(self):
+    async def _bufferover(self):
         try:
-            r = http_send(f"https://dns.bufferover.run/dns?q=.{self.domain}", timeout=20)
+            r = await self._fetch(f"https://dns.bufferover.run/dns?q=.{self.domain}")
             if r["status"]==200:
                 for m in re.finditer(r'"([^"]+\.'+re.escape(self.domain)+r')"', r["body"]):
                     s = m.group(1).lower().split(",")[-1].strip()
                     if s.endswith("."+self.domain):
-                        with self.lock: self.subs.add(s)
+                        self.subs.add(s)
         except Exception as e:
             w(f"bufferover failed: {str(e)[:80]}")
     
-    def _rapiddns(self):
+    async def _rapiddns(self):
         try:
-            r = http_send(f"https://rapiddns.io/subdomain/{self.domain}?full=1", timeout=20)
+            r = await self._fetch(f"https://rapiddns.io/subdomain/{self.domain}?full=1")
             if r["status"]==200:
                 for m in re.finditer(r'<td>([a-zA-Z0-9._-]+\.'+re.escape(self.domain)+r')</td>', r["body"]):
-                    with self.lock: self.subs.add(m.group(1).lower())
+                    self.subs.add(m.group(1).lower())
         except Exception as e:
             w(f"rapiddns failed: {str(e)[:80]}")
     
-    def _alienvault(self):
+    async def _alienvault(self):
         try:
-            r = http_send(f"https://otx.alienvault.com/api/v1/indicators/domain/{self.domain}/passive_dns", timeout=20)
+            r = await self._fetch(f"https://otx.alienvault.com/api/v1/indicators/domain/{self.domain}/passive_dns")
             if r["status"]==200:
                 for m in re.finditer(r'"hostname":"([^"]+)"', r["body"]):
                     s = m.group(1).lower()
                     if s.endswith("."+self.domain):
-                        with self.lock: self.subs.add(s)
+                        self.subs.add(s)
         except Exception as e:
             w(f"alienvault failed: {str(e)[:80]}")
-    
-    def run(self) -> List[str]:
+
+    async def _check_dns(self, sub: str, spin) -> Optional[str]:
+        spin.next()
+        try:
+            await asyncio.get_running_loop().getaddrinfo(
+                sub, 80, family=socket.AF_INET, type=socket.SOCK_STREAM)
+            return sub
+        except (socket.herror, socket.gaierror, OSError):
+            return None
+
+    async def run(self) -> List[str]:
         ph("SUBDOMAIN ENUMERATION")
         i(f"Target: {self.domain}")
-        
-        sources = [self._crtsh, self._hackertarget, self._bufferover, self._rapiddns, self._alienvault]
-        threads = []
-        for fn in sources:
-            t = threading.Thread(target=fn)
-            t.start(); threads.append(t)
-            time.sleep(0.2)
-        for t in threads: t.join()
-        
-        i(f"Raw: {len(self.subs)} found, validating via DNS...")
-        valid = set()
-        spin = Spinner("Resolving DNS records...")
-        def check(s):
-            spin.next()
-            try:
-                socket.getaddrinfo(s, 80, socket.AF_INET, socket.SOCK_STREAM)
-                return s
-            except (socket.herror, socket.gaierror, OSError):
-                return None
-        with concurrent.futures.ThreadPoolExecutor(max_workers=RECON_THREADS) as ex:
-            for r in ex.map(check, list(self.subs)):
+
+        private_engine = self.engine is None
+        if private_engine:
+            self.engine = AsyncNetworkEngine()
+        valid: Set[str] = set()
+        try:
+            sources = [self._crtsh, self._hackertarget, self._bufferover,
+                       self._rapiddns, self._alienvault]
+            tasks = []
+            for idx, fn in enumerate(sources):
+                if idx:
+                    # Stagger source starts (was time.sleep between threads)
+                    await asyncio.sleep(0.2)
+                tasks.append(asyncio.create_task(fn()))
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            i(f"Raw: {len(self.subs)} found, validating via DNS...")
+            spin = Spinner("Resolving DNS records...")
+            checks = [self._check_dns(s, spin) for s in list(self.subs)]
+            for coro in asyncio.as_completed(checks):
+                r = await coro
                 if r: valid.add(r)
-        spin.stop()
+            spin.stop()
+        finally:
+            if private_engine:
+                await self.engine.close()
         valid.add(self.domain)
         p(f"Live Subdomains: {G}{len(valid)}{N}")
         return sorted(valid)
-
-import asyncio
-import httpx
 
 class HTTPProber:
     def __init__(self, subs: List[str], seed_url=None, timeout=10, rate_limiter=None,
@@ -332,11 +344,12 @@ class HTTPProber:
         return self.services
 
 class WaybackCollector:
-    def __init__(self, domain: str):
+    def __init__(self, domain: str, engine: AsyncNetworkEngine = None):
         self.domain = domain
         self.urls: Set[str] = set()
+        self.engine = engine  # None = private engine created in run()
     
-    def run(self) -> List[str]:
+    async def run(self) -> List[str]:
         ph("WAYBACK MACHINE: Time Travel")
         i(f"Fetching historical archives for {W}{self.domain}{N}...")
         spin = Spinner("Mining Wayback Machine...")
@@ -347,18 +360,25 @@ class WaybackCollector:
         if self.domain.count(".")<=2:
             sources.append(f"https://web.archive.org/cdx/search/cdx?url={self.domain}/*&output=json&limit=100000")
         
-        for src in sources:
-            spin.next()
-            try:
-                r = thttp(src, timeout=30)
-                if r["status"]==200:
-                    for ln in r["body"].split("\n"):
-                        ln = ln.strip().strip('"')
-                        if ln.startswith("http"):
-                            self.urls.add(ln)
-            except Exception as e:
-                w(f"wayback source failed: {str(e)[:80]}")
-        spin.stop()
+        private_engine = self.engine is None
+        if private_engine:
+            self.engine = AsyncNetworkEngine()
+        try:
+            for src in sources:
+                spin.next()
+                try:
+                    r = await self.engine.ahttp_send(src, timeout=30)
+                    if r["status"]==200:
+                        for ln in r["body"].split("\n"):
+                            ln = ln.strip().strip('"')
+                            if ln.startswith("http"):
+                                self.urls.add(ln)
+                except Exception as e:
+                    w(f"wayback source failed: {str(e)[:80]}")
+        finally:
+            spin.stop()
+            if private_engine:
+                await self.engine.close()
         
         p(f"URLs collected: {len(self.urls)}")
         return sorted(self.urls)
@@ -369,7 +389,9 @@ class ParamExtractor:
         self.extra_params = extra_params or []
         self.params: Dict[str, Set[str]] = {}
     
-    def run(self) -> Dict[str, List[str]]:
+    async def run(self) -> Dict[str, List[str]]:
+        """Pure-CPU param mining — async only so callers can await it
+        directly instead of paying a to_thread hop."""
         from collections import defaultdict
         from urllib.parse import parse_qs
         self.params = defaultdict(set)
@@ -377,7 +399,9 @@ class ParamExtractor:
         i(f"Analyzing {W}{len(self.urls)}{N} endpoints for input vectors...")
         
         spin = Spinner("Extracting unique parameters...")
-        for u in self.urls:
+        for idx, u in enumerate(self.urls):
+            if idx and idx % 200 == 0:
+                await asyncio.sleep(0)  # yield to the loop on huge corpora
             spin.next()
             p_parsed = urlparse(u)
             path = p_parsed.path if p_parsed.path else "/"

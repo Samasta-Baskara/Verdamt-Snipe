@@ -75,7 +75,7 @@ async def run_vuln_assault(
     if not params:
         try:
             mined = await asyncio.wait_for(
-                asyncio.to_thread(ParamExtractor(scan_urls).run),
+                ParamExtractor(scan_urls).run(),
                 timeout=PRE_GATHER_TIMEOUTS["param_extractor"],
             ) or {}
         except asyncio.TimeoutError:
