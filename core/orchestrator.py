@@ -27,7 +27,7 @@ from core.client import AsyncNetworkEngine
 from core.http_client import GhostMode
 from core.modes import _execute_mode, phase_verify_report
 from core.policy import ScanPolicy
-from core.project import ProjectState, sanitize_filename
+from core.project import OUTPUT_DIR, ProjectState, sanitize_filename
 from core.proxy_manager import get_global_proxy_manager, setup_proxy
 from core.ratelimit import get_global_rate_limiter
 from core.state import SessionManager
@@ -178,7 +178,7 @@ async def async_main():
             print(f"{R}[!] --resume needs a state file path (or a target for outputs/<target>.state){N}")
             sys.exit(1)
         default_target, _ = parse_target(target_arg)
-        resume_path = f"outputs/{sanitize_filename(default_target)}.state"
+        resume_path = os.path.join(OUTPUT_DIR, f"{sanitize_filename(default_target)}.state")
 
     if not target_arg and not resume_path:
         print(f"{R}[!] Target or --resume <state-file> is required{N}")
@@ -221,7 +221,8 @@ async def async_main():
         audit_log_path = policy_options.pop("audit_log", None)
         policy = ScanPolicy(target, **policy_options)
         from core.audit import AuditLogger
-        log_file = audit_log_path or f"outputs/audit_{sanitize_filename(target)}.jsonl"
+        log_file = audit_log_path or os.path.join(
+            OUTPUT_DIR, f"audit_{sanitize_filename(target)}.jsonl")
         AuditLogger.configure(log_file)
     except ValueError as exc:
         print(f"{R}[!] Invalid scan policy: {exc}{N}")

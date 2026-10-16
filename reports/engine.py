@@ -6,7 +6,7 @@ import shlex
 import uuid
 from datetime import datetime
 
-OUTPUT_DIR = "outputs"
+from core.project import OUTPUT_DIR
 
 
 def _sanitize_filename(name: str) -> str:

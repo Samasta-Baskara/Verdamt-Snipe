@@ -2,8 +2,13 @@ import json
 import os
 import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
-OUTPUT_DIR = "outputs"
+# Anchor ke direktori repo, BUKAN relative ke CWD: hasil scan dulu
+# nempel di shell directory user (python /path/verd.py dari ~/Downloads
+# -> ~/Downloads/outputs/) sehingga outputs/ di repo selalu menampilkan
+# scan pertama saja — "scan kedua tidak ada di outputs".
+OUTPUT_DIR = str(Path(__file__).resolve().parent.parent / "outputs")
 
 
 def sanitize_filename(name: str) -> str:

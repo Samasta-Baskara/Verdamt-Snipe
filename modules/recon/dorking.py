@@ -194,9 +194,9 @@ class GoogleDorker:
     def _export_manual_dorks(self) -> str:
         """Write the full dork list to outputs/<target>_dorks.txt for manual
         use (copy-paste into a browser / any search engine)."""
-        from core.project import sanitize_filename
-        os.makedirs("outputs", exist_ok=True)
-        path = f"outputs/{sanitize_filename(self.domain)}_dorks.txt"
+        from core.project import OUTPUT_DIR, sanitize_filename
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        path = f"{OUTPUT_DIR}/{sanitize_filename(self.domain)}_dorks.txt"
         try:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(f"# Verdammt-Snipe dork queries for {self.domain}\n")
