@@ -8,11 +8,7 @@ import asyncio
 from typing import Optional, Dict, Any
 from core.ua import CHROME_WIN
 
-try:
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
+from core.playwright_compat import PLAYWRIGHT_AVAILABLE, async_playwright
 
 
 class SharedBrowserPool:

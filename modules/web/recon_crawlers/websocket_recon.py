@@ -1,11 +1,7 @@
 from typing import List, Dict, Any, Set
 from urllib.parse import urlparse
 
-try:
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
+from core.playwright_compat import PLAYWRIGHT_AVAILABLE
 
 from core.ui import ph, s, w, N, C
 
