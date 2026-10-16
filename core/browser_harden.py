@@ -153,20 +153,22 @@ def check_firefox_leaks() -> dict:
     # Look for prefs.js in profiles
     for prefs_file in profile_dir.rglob("prefs.js"):
         try:
-            content = prefs_file.read_text()
-            
+            # Firefox writes `user_pref("key", false);` WITH a space —
+            # normalize so generated and real prefs.js compare equal.
+            content = prefs_file.read_text().replace(" ", "")
+
             # Check WebRTC
             if '"media.peerconnection.enabled",false' in content:
                 results["webRTC_leak"] = False
-            
+
             # Check DNS prefetch
             if '"network.dns.disablePrefetch",true' in content:
                 results["dns_prefetch"] = False
-            
+
             # Check telemetry
             if '"toolkit.telemetry.enabled",false' in content:
                 results["telemetry"] = False
-            
+
             # Check fingerprinting
             if '"privacy.resistFingerprinting",true' in content:
                 results["fingerprinting"] = False

@@ -93,7 +93,10 @@ class SQLiExtractor:
                 break
         if not found:
             query.append((param, payload))
-        return urlunparse((parts.scheme, parts.netloc, parts.path,
+        # urlunparse needs SIX components (scheme, netloc, path, params,
+        # query, fragment) — the missing "" made every _inject raise
+        # ValueError, so the whole extractor silently sent zero probes.
+        return urlunparse((parts.scheme, parts.netloc, parts.path, "",
                            urlencode(query), parts.fragment))
 
     async def _send(self, url, param, payload, timeout=10, obfuscate=False):

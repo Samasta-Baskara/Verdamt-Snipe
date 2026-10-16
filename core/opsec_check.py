@@ -83,11 +83,12 @@ def check_websocket_leak() -> dict:
                 prefs_file = os.path.join(firefox_prefs, profile, "prefs.js")
                 if os.path.exists(prefs_file):
                     with open(prefs_file) as f:
-                        content = f.read()
-                    if '"media.peerconnection.enabled",false' in content:
-                        result["webRTC_risk"] = False
-                        result["note"] = "WebRTC disabled in Firefox profile"
-                        return result
+                        # Firefox writes the pref WITH a space after the comma
+                        content = f.read().replace(" ", "")
+                        if '"media.peerconnection.enabled",false' in content:
+                            result["webRTC_risk"] = False
+                            result["note"] = "WebRTC disabled in Firefox profile"
+                            return result
     except Exception:
         pass
 
