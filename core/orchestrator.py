@@ -28,7 +28,7 @@ from core.http_client import GhostMode
 from core.modes import _execute_mode, phase_verify_report
 from core.policy import ScanPolicy
 from core.project import OUTPUT_DIR, ProjectState, sanitize_filename
-from core.proxy_manager import get_global_proxy_manager, setup_proxy
+from core.proxy_manager import get_global_proxy_manager, setup_proxy, verify_proxy_reachable
 from core.ratelimit import get_global_rate_limiter
 from core.state import SessionManager
 from core.ui import (
@@ -297,6 +297,17 @@ async def async_main():
         s(f"Proxy Active: {proxy_mgr.current_proxy} "
           f"({len(proxy_mgr.proxies)} loaded, "
           f"rotate={'every ' + str(proxy_rotate) + ' req' if proxy_rotate else 'off'})")
+        # Pre-flight: Tor/proxy daemon harus answering SEBELUM scan mulai.
+        # Transport udah fail-closed (request error, bukan direct) — tapi
+        # tanpa check ini lo baru tau Tor mati pas scan udah jalan & semua
+        # request timeout. Scan tetep aman (gak bocor), tapi lo buang waktu.
+        if not verify_proxy_reachable(timeout=4.0):
+            print(f"{R}[!] Proxy {proxy_mgr.current_proxy} NOT answering "
+                  f"(Tor/proxy daemon down?){N}")
+            print(f"{R}    Every request would fail (fail-closed, no IP leak, "
+                  f"but scan finds nothing). Fix the proxy or drop --proxy / "
+                  f"use --no-proxy to scan direct.{N}")
+            sys.exit(2)
 
     console.clear()
     t0 = time.time()
