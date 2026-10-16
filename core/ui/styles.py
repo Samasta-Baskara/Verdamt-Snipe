@@ -19,29 +19,6 @@ from rich.columns import Columns
 from rich.rule import Rule
 from rich import box
 
-
-
-import os
-import sys
-import time
-import re
-import random
-import threading
-import collections
-from typing import Dict, List, Optional
-
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
-from rich.live import Live
-from rich.layout import Layout
-from rich.align import Align
-from rich.columns import Columns
-from rich.rule import Rule
-from rich import box
-
 console = Console(highlight=False)
 
 # Legacy ANSI Colors (Kept for compatibility with existing string formats)

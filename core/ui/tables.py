@@ -749,7 +749,6 @@ class ScanDashboard:
         self.phase: str = ""
         self.status: str = "STARTING"
         self.current_activity: str = ""
-        self.event_count: int = 0
         self.finding_count: int = 0
         self.severity_counts: Dict[str, int] = {
             "Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0,
@@ -767,9 +766,6 @@ class ScanDashboard:
         self._rps_history: collections.deque = collections.deque(maxlen=30)
         self._display_pct: float = 0.0
         self._last_completed_count: int = 0
-        self._flash_until: float = 0.0
-        self.warning_count: int = 0
-        self.error_count: int = 0
         self.start_time: float = 0.0
         self._live: Optional[Live] = None
         self._active: bool = False
@@ -802,7 +798,6 @@ class ScanDashboard:
                 self.version = version
             self.start_time = time.time()
             self.status = "STARTING"
-            self.event_count = 0
             self.finding_count = 0
             self.severity_counts = {
                 "Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0,
@@ -829,12 +824,9 @@ class ScanDashboard:
             self._rps_history.clear()
             self._display_pct = 0.0
             self._last_completed_count = 0
-            self._flash_until = 0.0
             self._event_seq = 0
             self._view_anchor = None
             self._render_top_seq = 0
-            self.warning_count = 0
-            self.error_count = 0
             self.phase = "STARTING"
             self._append_event_locked(f"Starting scan on {target}", "cyan", "info")
             self._append_event_locked("Initializing modules...", "cyan", "info")
@@ -1135,7 +1127,6 @@ class ScanDashboard:
 
     def log_event(self, text: str, style: str = "white", kind: Optional[str] = None):
         with self._lock:
-            self.event_count += 1
             clean_text = strip_ansi(text)
 
             # Auto metric parsing from logs
@@ -1208,13 +1199,11 @@ class ScanDashboard:
 
     def log_warning(self, text: str):
         with self._lock:
-            self.warning_count += 1
             self._append_event_locked(strip_ansi(text), "yellow", "warn")
         self._throttled_refresh()
 
     def log_error(self, text: str):
         with self._lock:
-            self.error_count += 1
             self._append_event_locked(strip_ansi(text), "red", "fail")
         self._throttled_refresh()
 
@@ -1606,7 +1595,6 @@ class ScanDashboard:
             total_stages = len(snap_pipeline) or 1
             if completed > self._last_completed_count:
                 self._last_completed_count = completed
-                self._flash_until = time.monotonic() + 1.5
             if snap_status == "COMPLETED":
                 target_pct = 100.0
             elif snap_status in ("ERROR", "FAILED"):

@@ -356,7 +356,6 @@ class TestPhase0Budget(unittest.IsolatedAsyncioTestCase):
 
     async def test_phase0_time_does_not_eat_wave_budget(self):
         from unittest.mock import patch
-        first_wave_elapsed = []
         wave_calls = []
 
         async def fast_phase0(*args, **kwargs):
@@ -547,7 +546,6 @@ class TestLatencyObserverWiring(unittest.IsolatedAsyncioTestCase):
                 session_manager=MagicMock(), async_engine=engine,
                 is_turbo=False, max_duration=2, policy=None)
 
-        state = captured["state"]
         wired = captured["observer"]           # captured while the run was live
         self.assertIsNone(engine.latency_observer,
                           "observer must be cleared before returning")

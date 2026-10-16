@@ -613,7 +613,6 @@ class TestFindingsSummary(unittest.TestCase):
         dash.severity_counts = {"Critical": 1, "High": 2, "Medium": 1,
                                 "Low": 0, "Info": 0}
         lines = _plain(_segments(dash, 150, 50))
-        text = "\n".join(lines)
         row = next(ln for ln in lines if "Findings" in ln)
         self.assertIn("Findings", row)
         self.assertIn("4", row)

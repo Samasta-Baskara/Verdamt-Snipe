@@ -87,7 +87,6 @@ def curl_send(url: str, resolve_domain: str = None, resolve_ip: str = None,
         parts = (out or "").strip().split(":")
         code = int(parts[0]) if parts and parts[0].isdigit() else 0
         elapsed = float(parts[1]) if len(parts) > 1 else 0
-        size = int(parts[2]) if len(parts) > 2 else 0
 
         # Read body from temp file
         body = ""

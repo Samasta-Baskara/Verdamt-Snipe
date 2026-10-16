@@ -49,16 +49,6 @@ _MODES = {
     "7": ("nuclei", "NUCLEI", "Template scan only"),
 }
 
-_MODE_ICONS = {
-    "1": "🔍",
-    "2": "🧪",
-    "3": "💀",
-    "4": "☣️",
-    "5": "💥",
-    "6": "⚡",
-    "7": "🎯",
-}
-
 _IMPERSONATE_OPTS = [None, "chrome", "safari", "firefox"]
 
 
@@ -252,7 +242,6 @@ def print_banner(version, author):
         sys.stdout.flush()
     else:
         os.system('cls')
-    tw = _get_term_width()
     print()
 
     # Glitch-animated banner render

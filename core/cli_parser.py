@@ -722,7 +722,7 @@ async def async_main():
     if GhostMode.ENABLED:
         ph("Camouflage: Warming up session")
         camo = CamouflageBrowser(async_engine)
-        camo_stats = await camo.warm_up(seed_url, num_visits=3)
+        await camo.warm_up(seed_url, num_visits=3)
         s(f"Camouflage: visited {len(camo.visited)} pages — session looks human")
 
     if impersonate_browser:

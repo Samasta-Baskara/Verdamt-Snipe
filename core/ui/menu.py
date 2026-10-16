@@ -19,7 +19,7 @@ from rich.columns import Columns
 from rich.rule import Rule
 from rich import box
 
-from .banner import (_MODES, _MODE_ICONS, _HELP_USAGE, _HELP_GROUPS,
+from .banner import (_MODES, _HELP_USAGE, _HELP_GROUPS,
                      _HELP_LAUNCHER, _HELP_EXAMPLES, mode_flag)
 from .styles import (C, G, GY, N, R, W, _ARROW_R, _CHECK, _CROSS, _DIAMOND,
                      _INFO, _RARROW, _SKULL, _TARGET, _WARN, _get_term_width,
@@ -86,7 +86,6 @@ def ph(msg):
         return
 
     console.print()
-    tw = _get_term_width()
 
     # Build the phase header content
     phase_text = Text()
@@ -196,7 +195,6 @@ def draw_interactive_menu(target, settings, selected_mode=None):
     # Mode Selection Panel
     mode_lines = []
     for key, (mode_id, label, desc) in _MODES.items():
-        icon = _MODE_ICONS.get(key, "")
         if selected_mode == key:
             mode_lines.append(f"  [bold magenta]{_DIAMOND}[/] [bold cyan][{key}][/] [bold white]{label:<13}[/] [white]{desc}[/]")
         else:

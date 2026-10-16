@@ -279,7 +279,6 @@ class HTTPProber:
                         res = await self._probe_single(client, target)
                         if res:
                             sc = res["status_code"]
-                            c = G if sc < 300 else (Y if sc < 400 else (M if sc < 500 else R))
                             print(f"  [bold green]{_CHECK}[/] [cyan]{sc}[/] [white]{res['final_url']}[/] [bright_black]{res['title'][:60]}[/]")
                         return res
                     except Exception:

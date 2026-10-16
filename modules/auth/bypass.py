@@ -544,13 +544,6 @@ class WAFBypass:
             pass
         
         # Test 3: TE-TE — obfuscated Transfer-Encoding
-        te_obfuscations = [
-            "Transfer-Encoding: chunked",
-            "Transfer-Encoding: xchunked",
-            "Transfer-Encoding : chunked",
-            "Transfer-Encoding: chunked\r\nTransfer-Encoding: x",
-            "Transfer-encoding: chunked",  # Lowercase
-        ]
         # We can only test a subset via our HTTP client
         try:
             headers_tete = {

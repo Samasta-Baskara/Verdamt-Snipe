@@ -25,7 +25,6 @@ class _HostState:
     consecutive_429: int = 0
     total_requests: int = 0
     total_429: int = 0
-    last_success: float = 0.0
     _last_restore: float = 0.0
 
 
@@ -134,7 +133,6 @@ class HostRateLimiter:
         """Gradual recovery on successful request."""
         now = time.time()
         state.consecutive_429 = max(0, state.consecutive_429 - 1)
-        state.last_success = now
 
         # Gradual restore: every 30s of success, increase concurrency 25%
         if (now - state._last_restore) > 30:
@@ -151,7 +149,6 @@ class HostRateLimiter:
         """
         new_max = max(1, min(new_max, 500))
         if new_max != state.max_concurrent:
-            old_max = state.max_concurrent
             state.max_concurrent = new_max
 
     # Diagnostics

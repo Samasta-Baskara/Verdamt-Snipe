@@ -115,7 +115,6 @@ async def probe_unkeyed_headers(
         for header in poisoned_headers[:3]:
             for bust in _CACHE_BUSTERS[:5]:
                 target = f"{parsed.scheme}://{base_domain}{bust}"
-                payload = f"<script>document.cookie='xss=1'</script>"
                 await engine.ahttp_send(
                     target, headers={header: f"javascript:alert(1)//@{poison_value}"},
                     timeout=10, state_context=session_manager,
@@ -123,7 +122,6 @@ async def probe_unkeyed_headers(
                 # Second request to see if cache stored our poisoned response
                 r2 = await engine.ahttp_send(target, timeout=10, state_context=session_manager)
                 body2 = (r2.get("body") or "")
-                h2 = {k.lower(): v for k, v in (r2.get("headers") or {}).items()}
                 if "alert(1)" in body2:
                     findings.append({
                         "type": "cache_poisoned",

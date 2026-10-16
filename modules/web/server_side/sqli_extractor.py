@@ -79,7 +79,6 @@ class SQLiExtractor:
         self.engine = engine
         self.session_manager = session_manager
         self.db_type = "mysql"
-        self._baseline_latency = 0.0
         self._calibrated = False
         self._sleep_duration = 5  # Default, overridden after calibration
 
@@ -137,11 +136,7 @@ class SQLiExtractor:
 
         avg_latency = sum(latencies) / len(latencies)
         max_latency = max(latencies)
-        jitter = max_latency - min(latencies)
 
-        self._baseline_latency = avg_latency
-        self._baseline_max = max_latency
-        self._baseline_jitter = jitter
 
         # Dynamic sleep: must be clearly distinguishable from natural response time
         # Minimum 5 seconds, but scale up for slow/jittery targets

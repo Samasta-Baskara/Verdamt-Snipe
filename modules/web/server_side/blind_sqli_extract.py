@@ -8,8 +8,6 @@ from typing import Dict, List, Optional, Callable
 class BlindSQLiExtractor:
     """Extract data from blind SQLi using binary search per character (supports MySQL, PostgreSQL, MSSQL)."""
 
-    CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:@/ "
-
     # DBMS Queries configurations
     DBMS_QUERIES = {
         "mysql": {

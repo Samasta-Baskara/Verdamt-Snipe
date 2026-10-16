@@ -32,7 +32,7 @@ from dataclasses import dataclass
 try:
     from curl_cffi.requests import Session, AsyncSession
     CURL_CFFI_AVAILABLE = True
-except Exception as e:
+except Exception:
     import traceback
     import tempfile
     import os
