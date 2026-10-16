@@ -4,7 +4,7 @@
 import re
 import asyncio
 from typing import Dict, List
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 from core.ui import w
 
 async def scan_idor(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:

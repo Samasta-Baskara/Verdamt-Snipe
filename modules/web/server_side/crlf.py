@@ -2,7 +2,7 @@
 
 from typing import Dict, List
 
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 
 
 async def scan_crlf(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:

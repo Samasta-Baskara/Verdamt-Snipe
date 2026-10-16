@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
 from urllib.parse import urlencode
 from typing import List, Dict, Set, Optional
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 from core.ui import ph, i, p, w, draw_table, Spinner, G, N, W, B
 
 # EMBEDDED WORDLIST — 500+ high-value params from Arjun/ParamSpider/SecLists

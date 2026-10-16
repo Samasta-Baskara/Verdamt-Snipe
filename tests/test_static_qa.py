@@ -214,7 +214,7 @@ class TestPolicyDenyWarning(unittest.TestCase):
     """Bug #3 guard: budget exhaustion must be loud, once per reason."""
 
     def setUp(self):
-        import core.client as cl
+        import core.http_client as cl
         self.client = cl
         cl._POLICY_DENY_WARNED.clear()
 

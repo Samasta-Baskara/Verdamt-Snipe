@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from core.audit import AuditLogger, BODY_CAP, entry_to_curl
 from core.policy import ScanPolicy
-from core.client import http_send
+from core.http_client import http_send
 
 
 class TestAuditAndDryRun(unittest.TestCase):

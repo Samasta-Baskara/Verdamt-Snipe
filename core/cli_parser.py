@@ -11,11 +11,11 @@ from pathlib import Path
 
 from core.ui import print_banner, ph, i, w, s, Spinner, G, R, C, W, N, B, M, D, GY, ScanDashboard
 from core.ui import draw_interactive_menu, draw_help_screen, draw_confirm_bar, _MODES, _IMPERSONATE_OPTS
-from core.network import GhostMode
+from core.http_client import GhostMode
 from core.ratelimit import get_global_rate_limiter
 from core.policy import ScanPolicy
 from core.state import SessionManager
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 from core.project import ProjectState, sanitize_filename
 from modules.scanners import VulnVerifier
 from modules.web.server_side.blind_sqli_extract import BlindSQLiExtractor

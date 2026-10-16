@@ -7,7 +7,7 @@ import time
 import random
 from urllib.parse import quote, urlparse
 from typing import List, Dict, Set
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C, B
 
 # GOOGLE DORK TEMPLATES

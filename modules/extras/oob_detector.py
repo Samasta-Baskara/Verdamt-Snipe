@@ -3,7 +3,7 @@ import asyncio
 from typing import List, Dict, Optional
 
 # Assuming core modules are available
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 from core.ui import ph, i, p, w, s, draw_table, G, R, N, W, C
 
 

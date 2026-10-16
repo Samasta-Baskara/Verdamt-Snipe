@@ -408,7 +408,7 @@ class WAFBypass:
         This does not prove desync by itself. It only flags repeated timing
         anomalies from ambiguous CL/TE probes compared with a normal baseline.
         """
-        from core.network import thttp
+        from core.http_client import thttp
         results = {"vulnerable": False, "tests": [], "url": url, "confidence": "none"}
         timeout = 10
         baseline = thttp(url, timeout=timeout, policy=policy)

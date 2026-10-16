@@ -3,7 +3,7 @@ import base64
 import json
 import re
 from urllib.parse import urlparse
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 
 COMMON_SECRETS = [
     "secret", "password", "jwt_secret", "key", "secretkey",

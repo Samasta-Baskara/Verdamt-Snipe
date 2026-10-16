@@ -5,7 +5,6 @@ The sync class used to carry a full duplicate of the diffing logic
 AsyncParamBruteforcer inside a private event loop — these tests pin
 that contract so the two implementations cannot drift apart again.
 """
-import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 

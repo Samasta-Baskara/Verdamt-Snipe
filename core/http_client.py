@@ -1,4 +1,623 @@
-"""Re-export from core.client. Original was merged into core/client.py."""
-from .client import HTTPClient, HTTPResponse, DEFAULT_HEADERS
+"""
+Sync HTTP stack — GhostMode stealth, HTTPClient (httpx + raw-socket
+fallback), http_send/thttp/dns_resolve. Split out of core/client.py,
+which keeps the async AsyncNetworkEngine.
+"""
+import gzip
+import json
+import random
+import re
+import socket
+import ssl
+import time
+import uuid
+import zlib
+from dataclasses import dataclass
+from typing import List, Optional
+from urllib.parse import urlencode, urljoin, urlparse
 
-__all__ = ["HTTPClient", "HTTPResponse", "DEFAULT_HEADERS"]
+import httpx
+from core.audit import AuditLogger
+from core.policy import ScanPolicy
+from core.http_codec import _dechunk
+
+try:
+    import brotli
+except ImportError:
+    brotli = None
+
+_POLICY_DENY_WARNED: set = set()
+
+
+def _audit_body(data=None, json_body=None) -> Optional[str]:
+    """Normalize a request payload for the audit trail (curl-replay fidelity).
+
+    Mirrors what the transport will send: JSON dumps for json=, urlencoded for
+    dict data= (both httpx and the raw-socket path do this), utf-8 replace for
+    bytes. Returns None when there is no body so entries stay small.
+    """
+    if json_body is not None:
+        try:
+            return json.dumps(json_body, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(json_body)
+    if data is None:
+        return None
+    if isinstance(data, bytes):
+        return data.decode("utf-8", "replace")
+    if isinstance(data, dict):
+        return urlencode(data)
+    return data if isinstance(data, str) else str(data)
+
+
+def _warn_policy_deny(reason: str) -> None:
+    """One-shot loud warning when ScanPolicy denies a request.
+
+    Budget exhaustion used to be SILENT: ahttp_send returned status=0
+    which downstream reads as 'no response' (Arjun even printed
+    'Target unreachable'), so scans quietly stopped finding anything.
+    Warn once per reason — no log spam across thousands of denials.
+    """
+    if reason in _POLICY_DENY_WARNED:
+        return
+    _POLICY_DENY_WARNED.add(reason)
+    try:
+        from core.ui import w as _lw
+        extra = (" — raise --max-requests for longer runs"
+                 if "budget" in reason else "")
+        _lw(f"[policy] request denied: {reason}{extra} "
+            "(downstream reads this as 'no response')")
+    except Exception:
+        pass
+
+# Constants
+
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+    "Accept": "text/html,application/xhtml+xml",
+    "Accept-Encoding": "gzip, deflate, br",
+}
+
+TIMEOUT = 20
+
+
+# Dataclasses
+
+@dataclass
+class HTTPResponse:
+    """Structured HTTP response from HTTPClient."""
+    status_code: int
+    headers: dict
+    text: str
+    content: bytes
+    url: str
+    elapsed: float = 0.0
+    error: str = None
+
+
+# GhostMode (stealth/evasion)
+
+class GhostMode:
+    """Stealth & Evasion Engine — Minimal Tracking.
+    
+    Supports two activation modes:
+    1. Manual: User passes --stealth flag → ENABLED = True (global).
+    2. Auto-Evasion: RateLimiter detects WAF pressure on a specific host
+       → stealth headers are activated for that host only (adaptive).
+    """
+    ENABLED = False
+    JITTER_RANGE = (0.5, 2.5)
+    _rate_limiter = None  # Injected reference to global RateLimiter
+
+    @classmethod
+    def set_rate_limiter(cls, rate_limiter):
+        """Inject RateLimiter reference for auto-evasion integration."""
+        cls._rate_limiter = rate_limiter
+
+    @staticmethod
+    def apply_jitter_sync():
+        if GhostMode.ENABLED:
+            time.sleep(random.uniform(*GhostMode.JITTER_RANGE))
+
+    @classmethod
+    def should_stealth(cls, host: str) -> bool:
+        """Check if stealth headers should be used for a given host.
+        Returns True if:
+        - Global --stealth flag is enabled, OR
+        - RateLimiter has auto-activated stealth for this host due to WAF pressure.
+        """
+        if cls.ENABLED:
+            return True
+        if cls._rate_limiter and cls._rate_limiter.is_auto_stealth(host):
+            return True
+        return False
+
+    @staticmethod
+    def get_stealth_headers(host: str) -> dict:
+        browsers = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
+        ]
+        return {
+            "Host": host,
+            "User-Agent": random.choice(browsers),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "close",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+        }
+
+
+# HTTPClient (httpx + raw socket fallback)
+
+class HTTPClient:
+    """HTTP adapter with httpx first and raw-socket fallback for awkward servers."""
+
+    def __init__(self, timeout=30, follow_redirects=True, max_retries=2):
+        self.session = None
+        self.timeout = timeout
+        self.follow_redirects = follow_redirects
+        self.max_retries = max_retries
+
+    def _ensure_session(self):
+        if self.session is not None:
+            return
+        transport = httpx.HTTPTransport(
+            verify=False,
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=50),
+            retries=0,
+        )
+        self.session = httpx.Client(
+            transport=transport,
+            timeout=self.timeout,
+            follow_redirects=self.follow_redirects,
+        )
+
+    def request(self, method, url, **kwargs) -> HTTPResponse:
+        self._ensure_session()
+        headers = dict(DEFAULT_HEADERS)
+        headers.update(kwargs.pop("headers", {}) or {})
+        follow_redirects = kwargs.pop("follow_redirects", self.follow_redirects)
+
+        start = time.time()
+        try:
+            resp = self.session.request(method, url, headers=headers,
+                                        follow_redirects=follow_redirects, **kwargs)
+            content = self._decode_content(resp.content, resp.headers)
+            text = self._to_text(content, resp.encoding)
+            return HTTPResponse(
+                status_code=resp.status_code,
+                headers={k.lower(): v for k, v in resp.headers.items()},
+                text=text, content=content, url=str(resp.url),
+                elapsed=time.time() - start,
+            )
+        except (
+            httpx.RemoteProtocolError, httpx.ConnectError,
+            httpx.UnsupportedProtocol, httpx.ReadTimeout, httpx.ConnectTimeout,
+        ):
+            return self._raw_socket_request(method, url, headers=headers,
+                                            follow_redirects=follow_redirects, **kwargs)
+
+    def _decode_content(self, content: bytes, headers: dict) -> bytes:
+        te = (headers.get("transfer-encoding") or headers.get("Transfer-Encoding") or "").lower()
+        if "chunked" in te and content:
+            content = _dechunk(content)
+        encoding = (headers.get("content-encoding") or headers.get("Content-Encoding") or "").lower()
+        try:
+            if "gzip" in encoding:
+                return zlib.decompress(content, zlib.MAX_WBITS | 16)
+            if "deflate" in encoding:
+                return zlib.decompress(content)
+            if "br" in encoding and brotli:
+                return brotli.decompress(content)
+        except Exception:
+            return content
+        return content
+
+    def _to_text(self, content: bytes, encoding=None) -> str:
+        for enc in [encoding, "utf-8", "latin-1"]:
+            if not enc:
+                continue
+            try:
+                return content.decode(enc, "replace")
+            except Exception:
+                pass
+        return content.decode("utf-8", "replace")
+
+    def _raw_socket_request(self, method, url, **kwargs) -> HTTPResponse:
+        return self._raw_socket_request_inner(method, url, kwargs, redirects_left=5)
+
+    def _raw_socket_request_inner(self, method, url, kwargs, redirects_left) -> HTTPResponse:
+        start = time.time()
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return HTTPResponse(0, {}, "", b"", url, time.time() - start, "unsupported_url")
+
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
+        headers = dict(kwargs.get("headers") or {})
+        data = kwargs.get("data") or kwargs.get("content") or b""
+        if isinstance(data, str):
+            data = data.encode()
+        elif isinstance(data, dict):
+            data = urlencode(data).encode()
+            headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+
+        req_headers = {
+            "Host": host + (f":{port}" if port not in (80, 443) else ""),
+            "User-Agent": headers.pop("User-Agent", headers.pop("user-agent", "Mozilla/5.0")),
+            "Accept": headers.pop("Accept", headers.pop("accept", "*/*")),
+            "Connection": "close",
+        }
+        req_headers.update(headers)
+        if data:
+            req_headers["Content-Length"] = str(len(data))
+
+        try:
+            sock = socket.create_connection((host, port), timeout=self.timeout)
+            if parsed.scheme == "https":
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock, server_hostname=host)
+            sock.settimeout(self.timeout)
+
+            crlf = "\r\n"
+            request = f"{method.upper()} {path} HTTP/1.1{crlf}"
+            request += crlf.join(f"{k}: {v}" for k, v in req_headers.items())
+            request += crlf * 2
+            sock.sendall(request.encode() + data)
+
+            raw = b""
+            MAX_RESPONSE_SIZE = 50 * 1024 * 1024  # 50MB safety limit
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                raw += chunk
+                if len(raw) > MAX_RESPONSE_SIZE:
+                    break
+            sock.close()
+        except Exception as exc:
+            return HTTPResponse(0, {}, "", b"", url, time.time() - start, str(exc))
+
+        status_code, headers, body = self._parse_raw_response(raw)
+        body = self._decode_content(body, headers)
+        final_url = url
+
+        if redirects_left > 0 and status_code in (301, 302, 303, 307, 308):
+            location = headers.get("location")
+            if location:
+                next_url = urljoin(url, location)
+                next_method = "GET" if status_code in (301, 302, 303) else method
+                return self._raw_socket_request_inner(next_method, next_url, kwargs, redirects_left - 1)
+
+        return HTTPResponse(
+            status_code=status_code, headers=headers,
+            text=self._to_text(body), content=body,
+            url=final_url, elapsed=time.time() - start,
+        )
+
+    def _parse_raw_response(self, raw: bytes):
+        header_blob, sep, body = raw.partition(b"\r\n\r\n")
+        if not sep:
+            header_blob, sep, body = raw.partition(b"\n\n")
+        header_text = header_blob.decode("iso-8859-1", "replace")
+        lines = header_text.splitlines()
+        status_code = 0
+        if lines:
+            parts = lines[0].split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                status_code = int(parts[1])
+        headers = {}
+        for line in lines[1:]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                headers[key.strip().lower()] = value.strip()
+        if headers.get("transfer-encoding", "").lower() == "chunked":
+            body = self._decode_chunked(body)
+        return status_code, headers, body
+
+    def _decode_chunked(self, body: bytes) -> bytes:
+        out = bytearray()
+        idx = 0
+        while idx < len(body):
+            line_end = body.find(b"\r\n", idx)
+            if line_end == -1:
+                break
+            size_line = body[idx:line_end].split(b";", 1)[0].strip()
+            try:
+                size = int(size_line, 16)
+            except ValueError:
+                break
+            idx = line_end + 2
+            if size == 0:
+                break
+            out.extend(body[idx:idx + size])
+            idx += size + 2
+        return bytes(out)
+
+    def close(self):
+        if self.session is not None:
+            self.session.close()
+            self.session = None
+
+
+# Raw Socket HTTP (zero-dependency sync)
+
+def http_send(url: str, method: str = "GET", headers: dict = None,
+              data: str = None, timeout: int = TIMEOUT,
+              bypass: bool = False, raw: bool = False,
+              max_retries: int = 3,
+              impersonate: str = None,
+              policy: Optional[ScanPolicy] = None) -> dict:
+    """HTTP(S) request with optional TLS fingerprint impersonation.
+    
+    Args:
+        impersonate: Browser target for TLS spoofing ('chrome', 'safari', 'firefox')
+                     None = use raw socket (default behavior)
+    """
+    trace = uuid.uuid4().hex[:12]
+    if policy:
+        decision = policy.authorize_request(url, method,
+                                            headers=headers,
+                                            body=_audit_body(data),
+                                            trace_id=trace)
+        if not decision.allowed:
+            _warn_policy_deny(decision.reason)
+            return {
+                "status": 0,
+                "error": f"policy_denied:{decision.reason}",
+                "body": "",
+                "headers": {},
+                "url": url,
+                "time": 0,
+                "waf": [],
+            }
+        if getattr(policy, "dry_run", False):
+            policy.refund_request(reason="dry_run", url=url, trace_id=trace)
+            return {
+                "status": 200,
+                "error": None,
+                "body": "[DRY RUN] Request authorized but not dispatched to network.",
+                "headers": {"content-type": "text/html; charset=utf-8", "x-verdamt-dry-run": "1"},
+                "url": url,
+                "time": 0.001,
+                "waf": [],
+            }
+        timeout = policy.clamp_timeout(timeout)
+
+    # Local import to avoid circular dep (core.client → modules.auth → ...)
+    from modules.auth.bypass import WAFBypass
+    from core.ui import w as log_warn, count_request
+    count_request()
+
+    p = urlparse(url)
+    host = p.hostname or (p.netloc.split(":")[0] if ":" in p.netloc else p.netloc) or ""
+
+    # curl_cffi path (TLS impersonation — default)
+    try:
+        from core.curl_cffi_transport import CurlCffiSession, CURL_CFFI_AVAILABLE
+        if CURL_CFFI_AVAILABLE:
+            target = impersonate or "chrome"
+            session = CurlCffiSession(
+                impersonate=target,
+                timeout=timeout,
+                verify=False,
+                follow_redirects=policy is None,
+            )
+            hdrs = dict(headers or {})
+            if bypass:
+                hdrs.update(WAFBypass.get_bypass_headers())
+            elif GhostMode.should_stealth(host):
+                hdrs.update(GhostMode.get_stealth_headers(host))
+
+            GhostMode.apply_jitter_sync()
+            result = session.request(method, url, headers=hdrs, data=data)
+            session.close()
+
+            # Rate limit retry
+            if result.get("status") == 429 and max_retries > 0:
+                retry_after = result.get("headers", {}).get("retry-after", "")
+                try:
+                    wait_time = min(int(retry_after), 30)
+                except (ValueError, TypeError):
+                    wait_time = 5
+                log_warn(f"Rate limited (429). Backing off {wait_time}s... ({max_retries} retries left)")
+                AuditLogger.get_instance().log_response(
+                    url, method, status_code=429,
+                    elapsed=result.get("time") or 0.0, trace_id=trace)
+                time.sleep(wait_time)
+                return http_send(url, method=method, headers=headers, data=data,
+                                 timeout=timeout, bypass=bypass, raw=raw,
+                                 max_retries=max_retries - 1,
+                                 impersonate=impersonate, policy=policy)
+            if policy and result.get("url") and not policy.allows_url(result["url"]):
+                result.update(
+                    status=0,
+                    error="policy_denied:redirect_out_of_scope",
+                    body="",
+                    waf=[],
+                )
+            AuditLogger.get_instance().log_response(
+                url, method, status_code=result.get("status") or 0,
+                elapsed=result.get("time") or 0.0, error=result.get("error"),
+                trace_id=trace)
+            return result
+    except ImportError:
+        log_warn("curl_cffi not available, falling back to raw socket")
+
+    # Raw socket path (fallback)
+
+    out = {"status": 0, "headers": {}, "body": "", "url": url,
+           "error": None, "time": 0, "waf": [], "raw": ""}
+    t0 = time.time()
+    try:
+        p = urlparse(url)
+        host = p.hostname or p.netloc.split(":")[0]
+        port = p.port or (443 if p.scheme == "https" else 80)
+        path = (p.path or "/") + ("?" + p.query if p.query else "")
+
+        hdrs = {
+            "Host": host + (f":{port}" if port not in (80, 443) else ""),
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Connection": "close",
+        }
+        if headers:
+            hdrs.update(headers)
+
+        if bypass:
+            bypass_hdrs = WAFBypass.get_bypass_headers()
+            for k, v in bypass_hdrs.items():
+                if k not in hdrs or k.lower() in ("user-agent", "accept", "accept-language"):
+                    hdrs[k] = v
+        elif GhostMode.should_stealth(host):
+            stealth_hdrs = GhostMode.get_stealth_headers(host)
+            for k, v in stealth_hdrs.items():
+                if k not in hdrs:
+                    hdrs[k] = v
+
+        GhostMode.apply_jitter_sync()
+
+        if data:
+            if isinstance(data, dict) and not raw:
+                data = urlencode(data)
+                hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+            d = data.encode() if isinstance(data, str) else data
+            hdrs["Content-Length"] = str(len(d))
+        else:
+            d = b""
+
+        crlf = b"\r\n"
+        req_line = f"{method} {path} HTTP/1.1".encode()
+        header_lines = crlf.join(f"{k}: {v}".encode() for k, v in hdrs.items())
+        req_bytes = req_line + crlf + header_lines + crlf * 2
+        if d:
+            req_bytes += d if isinstance(d, bytes) else d.encode()
+        out["raw"] = req_bytes.decode("latin-1", errors="replace")
+
+        # OPSEC: the raw fallback must honor the active proxy too — a direct
+        # connect here leaked real IP whenever curl_cffi was unavailable.
+        from core.proxy_manager import resolve_proxy
+        proxy_url = resolve_proxy()
+        if proxy_url:
+            from core.proxy_manager import _blocking_proxied_socket
+            tunneled = _blocking_proxied_socket(proxy_url, host, port, timeout)
+            tunneled.settimeout(timeout)
+            if p.scheme == "https":
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(tunneled, server_hostname=host)
+            else:
+                sock = tunneled
+        else:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            if p.scheme == "https":
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock, server_hostname=host)
+            sock.connect((host, port))
+        sock.sendall(req_bytes)
+
+        resp = b""
+        MAX_RESPONSE_SIZE = 50 * 1024 * 1024  # 50MB limit
+        while True:
+            try:
+                c = sock.recv(32768)
+                if not c:
+                    break
+                resp += c
+                if len(resp) > MAX_RESPONSE_SIZE:
+                    break
+            except Exception:
+                break
+        sock.close()
+
+        # Split headers first, decompress body only
+        crlf_bytes = b"\r\n\r\n"
+        if crlf_bytes in resp:
+            hp_raw, body_raw = resp.split(crlf_bytes, 1)
+        else:
+            hp_raw, body_raw = resp, b""
+        try:
+            if body_raw[:2] == b'\x1f\x8b':
+                body_raw = gzip.decompress(body_raw)
+            elif body_raw[:3] == b'\x1f\x9d':
+                body_raw = zlib.decompress(body_raw)
+        except Exception:
+            pass
+        hp = hp_raw.decode("iso-8859-1", "replace")
+        body = body_raw.decode("utf-8", "replace")
+
+        lines = hp.split("\r\n")
+        m = re.match(r'HTTP/\d\.\d+\s+(\d+)', lines[0]) if lines else None
+        if m:
+            out["status"] = int(m.group(1))
+        for ln in lines[1:]:
+            if ":" in ln:
+                k, v = ln.split(":", 1)
+                out["headers"][k.strip().lower()] = v.strip()
+        out["body"] = body
+        out["time"] = time.time() - t0
+        out["waf"] = WAFBypass.detect_waf(out["headers"], out["body"])
+
+        # Rate Limit Detection & Auto-Backoff
+        if out["status"] == 429:
+            retry_after = out["headers"].get("retry-after", "")
+            try:
+                wait_time = int(retry_after)
+            except (ValueError, TypeError):
+                wait_time = 5
+            wait_time = min(wait_time, 30)
+            if max_retries > 0:
+                log_warn(f"Rate limited (429). Backing off {wait_time}s... ({max_retries} retries left)")
+                AuditLogger.get_instance().log_response(
+                    url, method, status_code=429,
+                    elapsed=out.get("time") or 0.0, trace_id=trace)
+                time.sleep(wait_time)
+                return http_send(url, method=method, headers=headers, data=data,
+                                 timeout=timeout, bypass=bypass, raw=raw,
+                                 max_retries=max_retries - 1,
+                                 impersonate=impersonate, policy=policy)
+            else:
+                out["error"] = "rate_limited"
+    except Exception as ex:
+        out["error"] = str(ex)
+    AuditLogger.get_instance().log_response(
+        url, method, status_code=out.get("status") or 0,
+        elapsed=out.get("time") or 0.0, error=out.get("error"),
+        trace_id=trace)
+    return out
+
+
+def thttp(*a, **kw):
+    """Legacy alias for http_send with blanket exception safety."""
+    try:
+        return http_send(*a, **kw)
+    except Exception as ex:
+        return {"status": 0, "headers": {}, "body": "", "url": "",
+                "error": str(ex) or type(ex).__name__, "waf": []}
+
+
+def dns_resolve(domain: str) -> List[str]:
+    """Resolve domain to IPs (IPv4 + IPv6)."""
+    ips = set()
+    for af in (socket.AF_INET, socket.AF_INET6):
+        try:
+            for info in socket.getaddrinfo(domain, 80, af, socket.SOCK_STREAM):
+                ips.add(info[4][0])
+        except Exception:
+            pass
+    return list(ips)

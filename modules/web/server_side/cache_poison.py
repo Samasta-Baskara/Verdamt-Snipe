@@ -8,7 +8,7 @@ import random
 from typing import Dict, List
 from urllib.parse import urlparse
 
-from core.async_network import AsyncNetworkEngine
+from core.client import AsyncNetworkEngine
 from core.ui import i, s, w, ph, G, R, C, W, N
 from modules.mutator import mutator
 

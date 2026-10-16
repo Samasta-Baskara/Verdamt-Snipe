@@ -4,7 +4,8 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.client import GhostMode, CircuitBreaker
+from core.http_client import GhostMode
+from core.resilience import CircuitBreaker
 from core.host_ratelimit import HostRateLimiter
 
 
