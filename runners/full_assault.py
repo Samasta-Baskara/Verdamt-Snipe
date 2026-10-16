@@ -19,6 +19,8 @@ async def run_full_assault(
     is_turbo=False,
     module_flags=None,
     policy=None,
+    no_dork=False,
+    archive_timeout=None,
 ):
     """Option 5: run recon, app analysis, and assault in order."""
     all_findings = []
@@ -31,7 +33,8 @@ async def run_full_assault(
     try:
         findings, urls = await run_recon_intel(
             target, services, subs, current_urls, scope_guard,
-            async_engine, is_turbo, session_manager=session_manager, policy=policy
+            async_engine, is_turbo, session_manager=session_manager, policy=policy,
+            no_dork=no_dork, archive_timeout=archive_timeout,
         )
         all_findings.extend(findings)
         current_urls = list(urls)

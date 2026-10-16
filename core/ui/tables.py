@@ -935,10 +935,10 @@ class ScanDashboard:
                 target_idx = self._find_stage_index(("nuclei", "dalfox", "injection", "vulnerability", "assault"))
             elif any(k in p_lower for k in ("poison", "smuggled", "smuggling", "cache", "directory", "auth", "exhaust", "flood")):
                 target_idx = self._find_stage_index(("cache", "smuggling", "directory", "auth", "exhaust", "oob", "flood"))
-            elif any(k in p_lower for k in ("verify", "confirm", "phase 4")):
-                target_idx = self._find_stage_index(("verify", "verification"))
             elif any(k in p_lower for k in ("sqli", "extract", "phase 4.5")):
                 target_idx = self._find_stage_index(("sqli", "extraction"))
+            elif any(k in p_lower for k in ("verify", "confirm", "phase 4")):
+                target_idx = self._find_stage_index(("verify", "verification"))
             elif any(k in p_lower for k in ("report", "summary", "phase 5", "complete")):
                 target_idx = self._find_stage_index(("report", "reporter"))
 

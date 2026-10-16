@@ -426,7 +426,7 @@ def run_httpx(targets: List[str], timeout: int = 60, proxy: str = None,
 
 # GAU — URL Collection (GetAllUrls)
 
-def run_gau(domain: str, timeout: int = 45,
+def run_gau(domain: str, timeout: int = 90,
             policy: Optional[ScanPolicy] = None) -> List[str]:
     """Run gau to collect historical URLs from multiple sources.
     Returns list of URLs.
@@ -459,7 +459,7 @@ def run_gau(domain: str, timeout: int = 45,
 
 # WAYBACKURLS — Wayback Machine URL Mining
 
-def run_waybackurls(domain: str, timeout: int = 30,
+def run_waybackurls(domain: str, timeout: int = 90,
                     policy: Optional[ScanPolicy] = None) -> List[str]:
     """Run waybackurls to mine archived URLs."""
     if not _policy_allows_tool(policy, "waybackurls"):
@@ -646,11 +646,9 @@ def run_nuclei(targets: List[str], templates: str = None,
         rc, stdout, stderr = _run_tool("nuclei", args,
                                         timeout=timeout, input_data=input_data)
     except FileNotFoundError:
-        from core.ui import w
         w("nuclei not installed — skipping nuclei scan, tool will continue with internal engine")
         return []
     except Exception as e:
-        from core.ui import w
         w(f"nuclei execution failed: {e}")
         return []
 
@@ -718,7 +716,6 @@ def run_nuclei(targets: List[str], templates: str = None,
     # scan (false-negative operasional). Timeout is already logged by
     # _run_tool with partial-output salvage — don't double-report it.
     if rc != 0 and "timeout after" not in (stderr or ""):
-        from core.ui import w
         # Stderr tanpa -silent membawa banner/[INF] — buang baris stats
         # lalu ambil tail yang meaningful.
         stripped = "\n".join(
@@ -729,7 +726,6 @@ def run_nuclei(targets: List[str], templates: str = None,
         w(f"nuclei exited rc={rc} ({note}): {tail}")
 
     if findings:
-        from core.ui import p, G, Y, N
         sev_counts = {}
         for f in findings:
             s = f["cvss_severity"]
@@ -794,11 +790,9 @@ def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
                                         timeout=timeout, input_data=input_data,
                                         proxy=proxy)
     except FileNotFoundError:
-        from core.ui import w
         w("dalfox not installed — skipping dalfox XSS scan, tool will continue with internal engine")
         return []
     except Exception as e:
-        from core.ui import w
         w(f"dalfox execution failed: {e}")
         return []
 
@@ -833,7 +827,6 @@ def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
     # Same contract as run_nuclei: never hide a failed tool behind a clean
     # "0 findings" (timeout already logged by _run_tool).
     if rc != 0 and "timeout after" not in (stderr or ""):
-        from core.ui import w
         note = f"{len(findings)} finding(s) salvaged" if findings else "0 findings"
         w(f"dalfox exited rc={rc} ({note}): {(stderr or '').strip()[:150]}")
 

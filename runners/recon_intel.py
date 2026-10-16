@@ -2,7 +2,7 @@ import asyncio
 from urllib.parse import urljoin
 
 from core.external_tools import run_gau, run_waybackurls
-from core.ui import Spinner, ph
+from core.ui import Spinner, i, ph
 from modules.recon.dorking import GoogleDorker
 from modules.recon.jsscanner import JSScanner
 from modules.recon import WaybackCollector
@@ -16,24 +16,41 @@ from runners.shared import (
     validate_recon_urls,
 )
 
+# Archive mining budget (seconds) per tool. 30s was too short for
+# medium/large targets: wayback CDX + gau providers routinely take longer
+# than that, silently truncating URL collection. Override per run with
+# --archive-timeout <sec>.
+GAU_TIMEOUT_DEFAULT = 90
+WAYBACK_TIMEOUT_DEFAULT = 90
+
 
 async def run_recon_intel(target: str, services, subs, base_urls, scope_guard,
                           async_engine, is_turbo=False, session_manager=None,
-                          policy=None):
+                          policy=None, no_dork=False, archive_timeout=None):
     """Option 1: passive recon, JS analysis, and baseline checks."""
     ph("PHASE 1: RECON INTEL")
     findings = []
     urls = list(base_urls)
+    gau_timeout = archive_timeout or GAU_TIMEOUT_DEFAULT
+    wb_timeout = archive_timeout or WAYBACK_TIMEOUT_DEFAULT
 
     async def _run_gau():
         try:
-            return await asyncio.to_thread(run_gau, target, 30, policy)
+            # Backstop +15s di atas timeout internal subprocess: kalau jalur
+            # salvage _run_tool menggantung, fase recon tetap lanjut.
+            return await asyncio.wait_for(
+                asyncio.to_thread(run_gau, target, gau_timeout, policy),
+                timeout=gau_timeout + 15,
+            )
         except Exception:
             return []
 
     async def _run_wayback():
         try:
-            return await asyncio.to_thread(run_waybackurls, target, 30, policy)
+            return await asyncio.wait_for(
+                asyncio.to_thread(run_waybackurls, target, wb_timeout, policy),
+                timeout=wb_timeout + 15,
+            )
         except Exception:
             return []
 
@@ -45,10 +62,13 @@ async def run_recon_intel(target: str, services, subs, base_urls, scope_guard,
             return []
 
     async def _run_dorking():
+        if no_dork:
+            i("Dorking skipped (--no-dork)")
+            return {}
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(GoogleDorker(target).run),
-                timeout=30
+                timeout=35
             )
         except (asyncio.TimeoutError, Exception):
             return {}

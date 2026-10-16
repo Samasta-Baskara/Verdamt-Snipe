@@ -200,6 +200,8 @@ _HELP_GROUPS = [
         ("-s, --stealth", "Camouflage, jitter and human-like headers"),
         ("-t, --turbo", "Max concurrency, no delays"),
         ("--max-time <sec>", "Global scan time budget"),
+        ("--no-dork", "Skip Google/DDG scraping (queries still exported)"),
+        ("--archive-timeout <sec>", "gau/waybackurls budget (default 90s)"),
         ("--passive", "Passive methods and tools only"),
         ("-r, --resume [path]", "Resume from a saved state file"),
     ]),

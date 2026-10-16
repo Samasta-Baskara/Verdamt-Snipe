@@ -114,8 +114,16 @@ for _info_type in ["email", "internal_ip"]:
 
 def finding_cvss(finding: Dict) -> Dict:
     default = CVSS_DB.get(finding.get("type"), {"s": 0, "v": "Info", "vec": "N/A"})
+    # Coerce score to float: a producer that leaves cvss_score=None or a
+    # string used to crash the Phase 5 sort (None < int) AFTER verification
+    # — killing the report right before it was generated.
+    raw_score = finding.get("cvss_score", default["s"])
+    try:
+        score = float(raw_score)
+    except (TypeError, ValueError):
+        score = float(default["s"])
     return {
-        "s": finding.get("cvss_score", default["s"]),
+        "s": score,
         "v": finding.get("cvss_severity", default["v"]),
         "vec": finding.get("cvss_vector", default.get("vec", "N/A")),
     }

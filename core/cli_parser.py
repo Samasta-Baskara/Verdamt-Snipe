@@ -137,6 +137,7 @@ def parse_mode(flags):
 _VALUE_FLAGS = {
     "-p", "-i", "-r", "--proxy", "--proxy-list", "--proxy-rotate", "--impersonate",
     "--max-time", "--max-requests", "--max-concurrency", "--request-timeout",
+    "--archive-timeout",
     "--allowed-hosts", "--allowed-ports", "--audit-log", "--resume",
     "--bearer", "--bearer-file", "--bearer2", "--bearer2-file",
     "--cookie", "--cookie-file", "--cookie2", "--cookie2-file",
@@ -401,7 +402,7 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
             if not isinstance(f, dict):
                 continue
             key = (f.get("url", ""), f.get("type", ""), f.get("title", ""),
-                   f.get("detail", "")[:120])
+                   (f.get("detail") or "")[:120])
             if key not in _seen:
                 _seen.add(key)
                 _deduped.append(f)
@@ -522,7 +523,7 @@ async def phase_verify_report(target, findings, services, subs, scan_urls, targe
     seen = set()
     unique = []
     for f in findings:
-        key = (f.get("url",""), f.get("type",""), f.get("title",""), f.get("detail","")[:120])
+        key = (f.get("url",""), f.get("type",""), f.get("title",""), (f.get("detail") or "")[:120])
         if key not in seen:
             seen.add(key)
             unique.append(f)
@@ -593,6 +594,22 @@ async def async_main():
     mode_override = parse_mode(flags)
 
     is_turbo = "--turbo" in flags
+
+    # Dork scraping + archive mining knobs. Defaults: scraping ON (fast-bails
+    # by itself when search engines block the IP) and 90s archive budget —
+    # 30s was too short for medium/large targets (wayback/Gau index fetch).
+    no_dork = "--no-dork" in flags
+    archive_timeout = None
+    _archive_raw = _flag_value(flags, "--archive-timeout")
+    if _archive_raw is not None:
+        try:
+            archive_timeout = int(_archive_raw)
+            if archive_timeout <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            print(f"{R}[!] --archive-timeout needs a positive number of seconds{N}")
+            sys.exit(2)
+
     resume_state = None
     if resume_path:
         if not os.path.exists(resume_path):
@@ -826,104 +843,124 @@ async def async_main():
     # crash/timeout yang menyimpan state darurat) — flag dipakai resume
     # untuk melewati re-run penuh Phase 3.
     mode_completed = False
+    # Mode crash: `raise` langsung di dalam except dulu melewati blok
+    # verify/report+cleanup di bawah — crash sebelum Phase 4 selesai TIDAK
+    # pernah menghasilkan report dan resume mengulang dari awal (persis
+    # keluhan "mental sebelum verification, balik ke WAF risk assessment
+    # lagi"). Exception ditahan dulu, verify/report+cleanup jalan di
+    # finally, baru di-raise lagi supaya exit code tetap non-zero.
+    mode_error = None
     skip_assault = (resume_state is not None and mode == "assault"
                     and getattr(resume_state, "phase_done_assault", False))
     try:
-        if skip_assault:
-            i("Assault phase already completed (state flag) — skipping re-run, "
-              "proceeding to verify/report only")
-        elif max_time:
-            i(f"Global Time Limit set to {W}{max_time}s{N}")
-            try:
-                await asyncio.wait_for(
-                    _execute_mode(
-                        mode, target, seed_url, services, subs, scan_urls, params,
-                        all_findings, target_wafs, scope_guard, session_manager,
-                        auth_headers, auth_headers2, async_engine, is_turbo,
-                        module_flags,
-                        save_project_state,
-                        max_time,
-                        policy,
-                    ),
-                    timeout=max_time
+        try:
+            if skip_assault:
+                i("Assault phase already completed (state flag) — skipping re-run, "
+                  "proceeding to verify/report only")
+            elif max_time:
+                i(f"Global Time Limit set to {W}{max_time}s{N}")
+                try:
+                    await asyncio.wait_for(
+                        _execute_mode(
+                            mode, target, seed_url, services, subs, scan_urls, params,
+                            all_findings, target_wafs, scope_guard, session_manager,
+                            auth_headers, auth_headers2, async_engine, is_turbo,
+                            module_flags,
+                            save_project_state,
+                            max_time,
+                            policy,
+                            no_dork=no_dork,
+                            archive_timeout=archive_timeout,
+                        ),
+                        timeout=max_time
+                    )
+                except asyncio.TimeoutError:
+                    w(f"Scan timed out after {max_time} seconds! Saving findings and proceeding to reporting...")
+                    # Tracker A:521: cancellation never stops a thread already
+                    # inside subprocess.run — terminate the tool processes or
+                    # nuclei/dalfox keep hitting the target past --max-time and
+                    # asyncio.run joins them at exit (process outlives report).
+                    from core.external_tools import kill_active_procs
+                    kill_active_procs(f"--max-time {max_time}s")
+                    # Old path skipped save entirely: .state lost everything the
+                    # timeout interrupted; resume would restart from stale data.
+                    try:
+                        save_project_state()
+                    except Exception as e:
+                        w(f"State save after timeout failed: {e}")
+            else:
+                await _execute_mode(
+                    mode, target, seed_url, services, subs, scan_urls, params,
+                    all_findings, target_wafs, scope_guard, session_manager,
+                    auth_headers, auth_headers2, async_engine, is_turbo,
+                    module_flags,
+                    save_project_state,
+                    None,
+                    policy,
+                    no_dork=no_dork,
+                    archive_timeout=archive_timeout,
                 )
-            except asyncio.TimeoutError:
-                w(f"Scan timed out after {max_time} seconds! Saving findings and proceeding to reporting...")
-                # Tracker A:521: cancellation never stops a thread already
-                # inside subprocess.run — terminate the tool processes or
-                # nuclei/dalfox keep hitting the target past --max-time and
-                # asyncio.run joins them at exit (process outlives report).
-                from core.external_tools import kill_active_procs
-                kill_active_procs(f"--max-time {max_time}s")
-                # Old path skipped save entirely: .state lost everything the
-                # timeout interrupted; resume would restart from stale data.
-                try:
-                    save_project_state()
-                except Exception as e:
-                    w(f"State save after timeout failed: {e}")
-        else:
-            await _execute_mode(
-                mode, target, seed_url, services, subs, scan_urls, params,
-                all_findings, target_wafs, scope_guard, session_manager,
-                auth_headers, auth_headers2, async_engine, is_turbo,
-                module_flags,
-                save_project_state,
-                None,
-                policy,
-            )
-        mode_completed = True
-    except KeyboardInterrupt:
-        interrupted = True
-        from core.external_tools import kill_active_procs
-        kill_active_procs("interrupted by user")
-        try:
-            save_project_state()
-        except Exception as e:
-            w(f"State save after interrupt failed: {e}")
-        raise
-    except BaseException as e:
-        w(f"Mode '{mode}' crashed: {e.__class__.__name__}: {str(e)[:160]} — "
-          "saving state, still reporting what we have")
-        from core.external_tools import kill_active_procs
-        kill_active_procs(f"mode {mode} crashed")
-        try:
-            save_project_state()
-        except Exception as se:
-            w(f"State save after failure failed: {se}")
-        raise
-
-    # verify/report + cleanup — reached via normal flow or via an exception
-    # that will re-raise AFTER this finally completes.
-    try:
-        dashboard.stop()
-        if not interrupted:
-            # Ctrl+C skips network verify/report (user asked to stop) but a
-            # crashed mode still gets its partial findings reported.
+            mode_completed = True
+        except KeyboardInterrupt:
+            interrupted = True
+            from core.external_tools import kill_active_procs
+            kill_active_procs("interrupted by user")
             try:
-                await phase_verify_report(target, all_findings, services, subs, scan_urls, list(set(target_wafs)), t0, mode, async_engine, session_manager)
-                # Simpan state FINAL: findings terverifikasi (+ ekstraksi
-                # SQLi) sudah mengisi all_findings in-place — resume tak
-                # perlu mengulang Phase 4 penuh.
-                try:
-                    save_project_state()
-                except Exception:
-                    pass
+                save_project_state()
             except Exception as e:
-                w(f"Verify/report phase failed: {e.__class__.__name__}: {str(e)[:160]}")
-                try:
-                    save_project_state()
-                except Exception:
-                    pass
+                w(f"State save after interrupt failed: {e}")
+            raise
+        except BaseException as e:
+            # Jangan raise di sini — tahan sampai finally di bawah selesai
+            # mengurus verify/report + cleanup, lalu dilempar lagi.
+            mode_error = e
+            w(f"Mode '{mode}' crashed: {e.__class__.__name__}: {str(e)[:160]} — "
+              "saving state, still reporting what we have")
+            from core.external_tools import kill_active_procs
+            kill_active_procs(f"mode {mode} crashed")
+            try:
+                save_project_state()
+            except Exception as se:
+                w(f"State save after failure failed: {se}")
     finally:
+        # verify/report + cleanup — SELALU jalan, termasuk saat mode crash
+        # di tengah jalan (exception di atas ditahan, bukan langsung
+        # di-raise). Ctrl+C tetap melewati verify/report (user minta stop),
+        # tapi cleanup engine/browser/dashboard tetap dijalankan.
         try:
-            await async_engine.close()
-        except Exception as e:
-            w(f"Engine close failed: {e}")
-        try:
-            from core.browser_pool import SharedBrowserPool
-            await SharedBrowserPool.shutdown()
-        except Exception as e:
-            w(f"Browser pool shutdown failed: {e}")
+            dashboard.stop()
+            if not interrupted:
+                # Ctrl+C skips network verify/report (user asked to stop) but a
+                # crashed mode still gets its partial findings reported.
+                try:
+                    await phase_verify_report(target, all_findings, services, subs, scan_urls, list(set(target_wafs)), t0, mode, async_engine, session_manager)
+                    # Simpan state FINAL: findings terverifikasi (+ ekstraksi
+                    # SQLi) sudah mengisi all_findings in-place — resume tak
+                    # perlu mengulang Phase 4 penuh.
+                    try:
+                        save_project_state()
+                    except Exception:
+                        pass
+                except Exception as e:
+                    w(f"Verify/report phase failed: {e.__class__.__name__}: {str(e)[:160]}")
+                    try:
+                        save_project_state()
+                    except Exception:
+                        pass
+        finally:
+            try:
+                await async_engine.close()
+            except Exception as e:
+                w(f"Engine close failed: {e}")
+            try:
+                from core.browser_pool import SharedBrowserPool
+                await SharedBrowserPool.shutdown()
+            except Exception as e:
+                w(f"Browser pool shutdown failed: {e}")
+
+    if mode_error is not None:
+        # Re-raise SETELAH state tersimpan + report jadi + engine ditutup.
+        raise mode_error
 
 
 async def _execute_mode(
@@ -934,6 +971,8 @@ async def _execute_mode(
     save_project_state,
     max_time=None,
     policy=None,
+    no_dork=False,
+    archive_timeout=None,
 ):
     """Execute the selected scan mode."""
 
@@ -960,6 +999,7 @@ async def _execute_mode(
         recon_f, recon_u = await run_recon_intel(
             target, services, subs, scan_urls, scope_guard, async_engine,
             is_turbo, session_manager=session_manager, policy=policy,
+            no_dork=no_dork, archive_timeout=archive_timeout,
         )
         all_findings.extend(recon_f)
         merged = sorted(set(scan_urls + recon_u))
@@ -991,6 +1031,7 @@ async def _execute_mode(
             target, seed_url, services, subs, scan_urls, scope_guard, session_manager,
             auth_headers, auth_headers2, async_engine, is_turbo, all_findings,
             params, target_wafs, module_flags, policy=policy,
+            no_dork=no_dork, archive_timeout=archive_timeout,
         )
         save_project_state()
 
@@ -1007,6 +1048,7 @@ async def _execute_mode(
             target, seed_url, services, subs, scan_urls, scope_guard, session_manager,
             auth_headers, auth_headers2, async_engine, VULN_THREADS, is_turbo,
             module_flags=module_flags, policy=policy,
+            no_dork=no_dork, archive_timeout=archive_timeout,
         )
         all_findings.extend(full_f)
         params.update(full_p)
@@ -1054,7 +1096,7 @@ async def _run_app_mode(target, seed_url, services, scan_urls, scope_guard, sess
     scan_urls.extend(u)
 
 
-async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_guard, session_manager, auth_headers, auth_headers2, async_engine, is_turbo, all_findings, params, target_wafs, module_flags=None, policy=None):
+async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_guard, session_manager, auth_headers, auth_headers2, async_engine, is_turbo, all_findings, params, target_wafs, module_flags=None, policy=None, no_dork=False, archive_timeout=None):
     """Assault mode: auto pipeline recon → app → assault.
 
     Enrichment phases (recon/app/origin/katana) are best-effort: a failure
@@ -1069,6 +1111,7 @@ async def _run_assault_mode(target, seed_url, services, subs, scan_urls, scope_g
             f, u = await run_recon_intel(
                 target, services, subs, scan_urls, scope_guard, async_engine,
                 is_turbo, session_manager=session_manager, policy=policy,
+                no_dork=no_dork, archive_timeout=archive_timeout,
             )
             all_findings.extend(f)
             scan_urls.clear()
