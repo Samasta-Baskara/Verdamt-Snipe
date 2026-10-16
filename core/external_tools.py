@@ -181,7 +181,7 @@ import threading as _threading
 
 # External-tool subprocesses currently running. asyncio cancellation cannot
 # stop a thread that is already inside subprocess.run — after --max-time
-# the tools (nuclei timeout=300, dalfox 180) kept hitting the target and
+# the tools (nuclei/dalfox timeout=600) kept hitting the target and
 # `asyncio.run` joined the executor at exit, so the process outlived
 # "SCAN COMPLETE" (verdict A:521, verified 2026-10-06). Track every Popen
 # so the deadline path can terminate them.
@@ -537,7 +537,7 @@ def run_katana(url: str, depth: int = 2, timeout: int = 60, proxy: str | None = 
 # NUCLEI — Template-Based Vulnerability Scanning
 
 def run_nuclei(targets: list[str], templates: str | None = None,
-               severity: str = "medium,high,critical", timeout: int = 300,
+               severity: str = "medium,high,critical", timeout: int = 600,
                auth_headers: dict | None = None, tech_tags: list[str] | None = None,
                proxy: str | None = None, policy: ScanPolicy | None = None) -> list[dict]:
     """Run nuclei template scanner with optional auth injection and tech-aware templates.
@@ -720,7 +720,7 @@ def _nuclei_severity_to_cvss(severity: str) -> float:
 
 # DALFOX — XSS Scanner
 
-def run_dalfox(urls: list[str], timeout: int = 180, proxy: str | None = None,
+def run_dalfox(urls: list[str], timeout: int = 600, proxy: str | None = None,
                headers: dict | None = None, policy: ScanPolicy | None = None) -> list[dict]:
     """Run dalfox for XSS scanning.
     Returns list of XSS finding dicts.

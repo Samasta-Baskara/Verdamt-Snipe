@@ -17,20 +17,26 @@ def _current_proxy():
     return pm.current_proxy if pm and pm.current_proxy else None
 
 # Timeout per modul (detik) — backstop anti-hang di gather raksasa.
-# nuclei(300)/dalfox(180)/oob(60) punya timeout internal + partial salvage,
-# jadi backstop-nya LEBIH GEDE biar mekanisme internal tetap kepakai.
-# Modul async engine lain tanpa batas -> di-bound di sini.
+# Batas eksekusi per modul (detik). 720s = 12 menit per modul: cap lama
+# (60-600s) bikin modul sering kena timeout DI TENGAH berjalan dan hasil
+# yang sudah terkumpul dibuang — waktu yang sudah terbakar jadi sia-sia.
+# Global --max-time tetap membatasi seluruh scan dari luar; angka ini
+# hanya backstop inner. nuclei/dalfox punya timeout internal + partial
+# salvage (600s, di core/external_tools), jadi backstop-nya LEBIH GEDE
+# biar mekanisme internal tetap kepakai. Modul async engine lain tanpa
+# batas -> di-bound di sini.
 MODULE_TIMEOUTS = {
-    "nuclei": 360, "dalfox": 240, "internal_injection": 600,
-    "smuggling": 150, "oob": 70, "jwt": 90, "host_header": 90,
-    "crlf": 90, "stored_xss": 180, "idor": 120,
+    "nuclei": 720, "dalfox": 720, "internal_injection": 720,
+    "smuggling": 720, "oob": 720, "jwt": 720, "host_header": 720,
+    "crlf": 720, "stored_xss": 720, "idor": 720,
 }
 
 # Kerja serial SEBELM gather (param mining, waf risk) juga butuh backstop —
 # dulu tanpa batas, satu kegantungan menggagalkan seluruh phase 3 senyap.
+# Samakan dengan modul: 720s agar korpus besar tidak terpotong di tengah.
 PRE_GATHER_TIMEOUTS = {
-    "param_extractor": 90,
-    "waf_risk": 60,
+    "param_extractor": 720,
+    "waf_risk": 720,
 }
 
 
