@@ -2,11 +2,9 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
-import concurrent.futures
 from urllib.parse import urlencode
 from typing import List, Dict, Set, Optional
 from core.async_network import AsyncNetworkEngine
-from core.network import thttp
 from core.ui import ph, i, p, w, draw_table, Spinner, G, N, W, B
 
 # EMBEDDED WORDLIST — 500+ high-value params from Arjun/ParamSpider/SecLists
@@ -111,7 +109,12 @@ PARAM_WORDLIST = [
 
 
 class ParamBruteforcer:
-    """Arjun-style active parameter discovery via response diffing."""
+    """Sync façade over AsyncParamBruteforcer for legacy sync callers.
+
+    All probe logic lives in AsyncParamBruteforcer — this wrapper only
+    spins up a private event loop + engine so `to_thread`-style callers
+    keep working without duplicating the diffing implementation.
+    """
 
     def __init__(self, url: str, wordlist: List[str] = None, threads: int = 15,
                  chunk_size: int = 10, policy=None):
@@ -121,142 +124,22 @@ class ParamBruteforcer:
         self.chunk_size = chunk_size  # Params per request for bulk phase
         self.policy = policy
         self.found: Set[str] = set()
-        self.baseline = None
-        self.rate_limited = 0
 
-    def _get_baseline(self) -> Dict:
-        """Capture baseline response for diffing."""
-        r = thttp(self.url, timeout=10, policy=self.policy)
-        return {
-            "status": r["status"],
-            "length": len(r["body"]),
-            "body_hash": hash(r["body"][:500]),  # First 500 chars hash
-            "headers": set(r["headers"].keys()),
-        }
-
-    def _is_different(self, response: Dict) -> bool:
-        """Check if response differs significantly from baseline."""
-        if not self.baseline:
-            return False
-        
-        # Status code change
-        if response["status"] != self.baseline["status"] and response["status"] > 0:
-            return True
-        
-        # Significant body length change (>5% difference)
-        if self.baseline["length"] > 0:
-            diff_ratio = abs(len(response["body"]) - self.baseline["length"]) / max(self.baseline["length"], 1)
-            if diff_ratio > 0.05:
-                return True
-        
-        # Body content change
-        if hash(response["body"][:500]) != self.baseline["body_hash"]:
-            return True
-        
-        # New headers appeared
-        new_headers = set(response["headers"].keys()) - self.baseline["headers"]
-        if new_headers:
-            return True
-        
-        return False
-
-    def _test_chunk(self, params: List[str]) -> List[str]:
-        """Test a chunk of params at once (bulk phase)."""
-        hits = []
-        query = "&".join(f"{p}=FUZZ{i}" for i, p in enumerate(params))
-        target = f"{self.url}?{query}"
-        r = thttp(target, timeout=8, policy=self.policy)
-        if r["status"] == 429:
-            self.rate_limited += 1
-            return hits
-        if r["status"] > 0 and self._is_different(r):
-            # This chunk has something — narrow down
-            for param in params:
-                single_target = f"{self.url}?{param}=FUZZ"
-                sr = thttp(single_target, timeout=8, policy=self.policy)
-                if sr["status"] == 429:
-                    self.rate_limited += 1
-                    continue
-                if sr["status"] > 0 and self._is_different(sr):
-                    hits.append(param)
-        return hits
-
-    def _test_single(self, param: str) -> Optional[str]:
-        """Test a single parameter (verification phase)."""
-        target = f"{self.url}?{param}=FUZZ"
-        r = thttp(target, timeout=8, policy=self.policy)
-        if r["status"] == 429:
-            self.rate_limited += 1
-            return None
-        if r["status"] > 0 and self._is_different(r):
-            return param
-        return None
+    async def _run_inner(self) -> List[str]:
+        engine = AsyncNetworkEngine(policy=self.policy)
+        try:
+            return await AsyncParamBruteforcer(
+                self.url,
+                engine,
+                wordlist=self.wordlist,
+                concurrency=max(self.threads, 3),
+                chunk_size=self.chunk_size,
+            ).run()
+        finally:
+            await engine.close()
 
     def run(self) -> List[str]:
-        ph("ARJUN ENGINE: Hidden Parameter Discovery")
-        i(f"Target: {W}{self.url}{N}")
-        i(f"Wordlist: {W}{len(self.wordlist)}{N} params | Chunk size: {self.chunk_size}")
-
-        # Step 1: Baseline
-        spin = Spinner("Capturing baseline response...")
-        self.baseline = self._get_baseline()
-        spin.stop()
-
-        if self.baseline["status"] == 0:
-            w("Target unreachable. Skipping param bruteforce.")
-            return []
-
-        i(f"Baseline: Status={self.baseline['status']}, Length={self.baseline['length']}")
-
-        # Step 2: Bulk phase — test chunks
-        chunks = [self.wordlist[i:i+self.chunk_size] for i in range(0, len(self.wordlist), self.chunk_size)]
-        
-        p(f"Phase 1: Bulk scanning {B}{len(chunks)}{N} chunks...")
-        candidates = []
-        spinner = Spinner("Scanning params...")
-        spinner.start()
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as ex:
-            futs = {ex.submit(self._test_chunk, chunk): chunk for chunk in chunks}
-            done = 0
-            for f in concurrent.futures.as_completed(futs):
-                done += 1
-                if self.rate_limited >= 3:
-                    spinner.stop()
-                    w("Rate limit detected repeatedly. Stopping parameter bruteforce early.")
-                    break
-                try:
-                    hits = f.result()
-                    if hits:
-                        candidates.extend(hits)
-                except Exception as e:
-                    w(f"Param probe failed: {e}")
-
-        # Step 3: Verification phase — confirm each candidate
-        if candidates:
-            p(f"Phase 2: Verifying {B}{len(candidates)}{N} candidates...")
-            verified = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as ex:
-                futs = {ex.submit(self._test_single, c): c for c in candidates}
-                for f in concurrent.futures.as_completed(futs):
-                    if self.rate_limited >= 3:
-                        w("Rate limit detected repeatedly. Stopping parameter verification early.")
-                        break
-                    r = f.result()
-                    if r:
-                        verified.append(r)
-            self.found = set(verified)
-        
-        spinner.stop()
-
-        # Summary
-        if self.found:
-            rows = [[f"{G}FOUND{N}", f"{W}{param}{N}"] for param in sorted(self.found)]
-            draw_table(["STATUS", "PARAMETER"], rows, title="Discovered Hidden Parameters")
-        else:
-            w("No hidden parameters discovered.")
-
-        p(f"Hidden params found: {G}{len(self.found)}{N}")
+        self.found = set(asyncio.run(self._run_inner()))
         return sorted(self.found)
 
 
