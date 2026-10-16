@@ -83,12 +83,8 @@ DORK_TEMPLATES = [
     'site:{domain} filetype:log "token"',
 ]
 
-# User agents that look like normal browsers
-SEARCH_UAS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0",
-]
+# User agents that look like normal browsers (central pool: core/ua.py)
+from core.ua import SEARCH_UAS  # noqa: F401  (re-exported for tests/legacy)
 
 
 class GoogleDorker:

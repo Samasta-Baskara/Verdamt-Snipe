@@ -6,6 +6,7 @@ across all Playwright security modules (CSRF, PostMessage, Clickjacking, WS, Pro
 
 import asyncio
 from typing import Optional, Dict, Any
+from core.ua import CHROME_WIN
 
 try:
     from playwright.async_api import async_playwright
@@ -64,7 +65,7 @@ class SharedBrowserPool:
 
         kwargs: Dict[str, Any] = {
             "viewport": {"width": 1280, "height": 720},
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "user_agent": CHROME_WIN,
             "ignore_https_errors": True,
         }
         if proxy:

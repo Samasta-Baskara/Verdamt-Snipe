@@ -12,6 +12,7 @@ import ssl
 import time
 from typing import Dict
 from urllib.parse import urlparse
+from core.ua import DEFAULT_UA
 
 from core.ui import ph, i, s, w, p, G, R, C, N, B, draw_table
 
@@ -89,7 +90,7 @@ class ConnectionExhaust:
             partial_req = (
                 f"GET / HTTP/1.1\r\n"
                 f"Host: {self.host}\r\n"
-                f"User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36\r\n"
+                f"User-Agent: {DEFAULT_UA}\r\n"
                 f"Accept: */*\r\n"
                 f"X-Loris-{idx}: {idx}\r\n"
             )

@@ -6,6 +6,7 @@ import re
 import binascii
 from urllib.parse import quote
 from typing import List, Dict
+from core.ua import BYPASS_UAS
 
 class WAFBypass:
     """Complete WAF bypass engine — detection, encoding, header manipulation."""
@@ -371,15 +372,7 @@ class WAFBypass:
     @staticmethod
     def get_bypass_headers() -> Dict[str, str]:
         """Generate WAF-evading request headers."""
-        uas = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/17.0",
-            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
-            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-            "Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-            "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-        ]
+        uas = BYPASS_UAS
         
         ips = [
             f"{random.randint(1,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"

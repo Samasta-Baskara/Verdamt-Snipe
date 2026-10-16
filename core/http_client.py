@@ -18,6 +18,7 @@ from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
 from core.audit import AuditLogger
+from core.ua import BARE_UA, DEFAULT_UA, STEALTH_UAS
 from core.policy import ScanPolicy
 from core.http_codec import _dechunk
 
@@ -73,7 +74,7 @@ def _warn_policy_deny(reason: str) -> None:
 # Constants
 
 DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+    "User-Agent": DEFAULT_UA,
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Encoding": "gzip, deflate, br",
 }
@@ -134,11 +135,7 @@ class GhostMode:
 
     @staticmethod
     def get_stealth_headers(host: str) -> dict:
-        browsers = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
-        ]
+        browsers = STEALTH_UAS
         return {
             "Host": host,
             "User-Agent": random.choice(browsers),
@@ -253,7 +250,7 @@ class HTTPClient:
 
         req_headers = {
             "Host": host + (f":{port}" if port not in (80, 443) else ""),
-            "User-Agent": headers.pop("User-Agent", headers.pop("user-agent", "Mozilla/5.0")),
+            "User-Agent": headers.pop("User-Agent", headers.pop("user-agent", BARE_UA)),
             "Accept": headers.pop("Accept", headers.pop("accept", "*/*")),
             "Connection": "close",
         }
@@ -468,7 +465,7 @@ def http_send(url: str, method: str = "GET", headers: dict = None,
 
         hdrs = {
             "Host": host + (f":{port}" if port not in (80, 443) else ""),
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "User-Agent": DEFAULT_UA,
             "Accept": "*/*",
             "Connection": "close",
         }
