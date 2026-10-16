@@ -299,7 +299,9 @@ A summary of the main vulnerability vectors that are automatically tested:
 
 ## ⚙️ Installation
 
-**System Requirements:** Linux / macOS, **Python 3.12+**, 2GB+ RAM (4GB recommended for Playwright).
+**System Requirements:** Linux / macOS / Windows, **Python 3.12+**, 2GB+ RAM (4GB recommended for Playwright).
+
+### Linux / macOS
 
 ```bash
 # 1. Clone the repository & enter the directory
@@ -317,6 +319,39 @@ playwright install chromium
 # 4. (Optional) Bootstrap the SecLists/Assetnote wordlists into ~/.wordlists
 python3 verd.py --setup-wordlists
 ```
+
+### Windows (PowerShell)
+
+> Requires [Python 3.12+](https://www.python.org/downloads/) (tick **"Add python.exe to PATH"** during setup) and [Git](https://git-scm.com/download/win).
+
+```powershell
+# 1. Clone the repository & enter the directory
+git clone https://github.com/Samasta-Baskara/Verdamt-Snipe.git
+cd Verdamt-Snipe
+
+# 2. Create a virtual environment & install dependencies
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# 3. Install the Chromium driver for browser modules
+playwright install chromium
+
+# 4. (Optional) Bootstrap the SecLists/Assetnote wordlists into %USERPROFILE%\.wordlists
+py -3.12 verd.py --setup-wordlists
+```
+
+If PowerShell refuses to run the activation script (one-time, per-user):
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+Or skip activation entirely and call the venv interpreter directly: `.\.venv\Scripts\python.exe verd.py <target>`.
+
+> **Windows notes:**
+> - Use **`python` / `py`** instead of `python3`, and **`.\.venv\Scripts\python.exe`** instead of `./snipe` (the `snipe` launcher is a Bash script — run it under [Git Bash](https://git-scm.com/download/win) or WSL if you prefer it).
+> - **PDF reports** need GTK/Pango (`weasyprint`), which is not pip-installable on Windows — that dependency is auto-skipped via a `sys_platform` marker, so **HTML reports work, PDF is skipped**. To restore PDF, install the GTK stack (e.g. via [MSYS2](https://www.msys2.org/)) and `pip install weasyprint`.
+> - **Go Engine** (`verdamt-engine`) uses a Unix-domain socket and auto-compiles only where the Go toolchain + POSIX sockets exist; on Windows the framework **automatically falls back to the Python AsyncIO engine** — everything still works, just without the native speed boost. The external Go binaries (`subfinder`, `httpx`, `katana`, etc.) ship Windows builds and are picked up from `%PATH%` / `%USERPROFILE%\go\bin` as usual.
+> - Terminal mouse-wheel scrolling for the activity feed is handled by `rich`; if your console host drops it, the `↑`/`↓` keys and `PgUp`/`PgDn` still work.
 
 > **Engine notes:**
 > - The **internal Go Engine** (`go/cmd/engine`) is auto-compiled when the Go toolchain is available; without Go, the framework still runs fully via the Python AsyncIO fallback.

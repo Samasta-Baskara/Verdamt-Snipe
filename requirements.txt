@@ -6,7 +6,7 @@ lxml==6.1.2
 playwright==1.63.0
 python-interactsh @ git+https://github.com/theori-io/python-interactsh.git@f5ddbdba4b5127d70504562899d2795e0d79ed9c
 rich==15.0.0
-weasyprint==70.0
+weasyprint==70.0; sys_platform != "win32"
 PySocks==1.7.1
 PyJWT==2.15.1
 mmh3==5.3.1
