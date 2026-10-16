@@ -20,7 +20,7 @@ import unittest
 from rich.cells import cell_len
 from rich.console import Console
 
-from core.ui import tables
+from core.ui import styles, tables
 from core.ui.banner import _PIPELINE_STAGES_BY_MODE
 from core.ui.tables import ScanDashboard
 from core.ui.styles import (D_BG, D_EMERALD, D_GOLD, D_INFO, D_TEXT, D_DIM,
@@ -30,12 +30,12 @@ from core.ui.styles import (D_BG, D_EMERALD, D_GOLD, D_INFO, D_TEXT, D_DIM,
 def _segments(dash, width, height):
     con = Console(width=width, height=height, force_terminal=True,
                   highlight=False, legacy_windows=False)
-    previous = tables.console
-    tables.console = con
+    previous = styles.console
+    styles.console = con
     try:
         return con.render_lines(dash._build_layout(), con.options)
     finally:
-        tables.console = previous
+        styles.console = previous
 
 
 def _palette(lines):
@@ -504,12 +504,12 @@ class TestDrawTableRouting(unittest.TestCase):
 
     def _capture(self, fn):
         captured = io.StringIO()
-        original = tables.console
-        tables.console = Console(file=captured, width=100, force_terminal=False)
+        original = styles.console
+        styles.console = Console(file=captured, width=100, force_terminal=False)
         try:
             fn()
         finally:
-            tables.console = original
+            styles.console = original
         return captured.getvalue()
 
     def test_active_dashboard_streams_rows_into_feed(self):
