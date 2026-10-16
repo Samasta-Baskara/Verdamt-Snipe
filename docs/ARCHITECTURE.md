@@ -16,7 +16,7 @@ graph TB
     subgraph L1["Layer 1: Entry Points"]
         ENTRY_PY["verd.py (Python Entrypoint)"]
         ENTRY_SH["snipe (Bash CLI Launcher)"]
-        CLI_PARSER["core/cli_parser.py (Argparse & Orchestration Setup)"]
+        CLI_PARSER["core/cli_parser.py (Flag Parsing)<br/>core/orchestrator.py + core/modes.py (Orchestration)"]
         ENTRY_PY --> CLI_PARSER
         ENTRY_SH --> ENTRY_PY
     end
@@ -212,7 +212,7 @@ Diagram urutan (*sequence diagram*) berikut menggambarkan perjalanan data dari i
 sequenceDiagram
     autonumber
     actor User as "Operator / Penester"
-    participant CLI as "CLI Parser (cli_parser.py)"
+    participant CLI as "CLI Orchestrator (orchestrator.py)"
     participant Scope as "ScopeGuard"
     participant Policy as "ScanPolicy & RateLimiter"
     participant Net as "AsyncNetworkEngine / curl_cffi"
@@ -268,7 +268,9 @@ sequenceDiagram
 - **Berkas Kunci**:
   - [verd.py](file:///home/oblivion/verdamt-snipe/verd.py)
   - [snipe](file:///home/oblivion/verdamt-snipe/snipe)
-  - [core/cli_parser.py](file:///home/oblivion/verdamt-snipe/core/cli_parser.py)
+  - [core/cli_parser.py](file:///home/oblivion/verdamt-snipe/core/cli_parser.py) — grammar bendera CLI
+  - [core/orchestrator.py](file:///home/oblivion/verdamt-snipe/core/orchestrator.py) — entry `async_main`/`main_cli`, crash-safety wrapper, TUI pemilihan mode
+  - [core/modes.py](file:///home/oblivion/verdamt-snipe/core/modes.py) — dispatch `_execute_mode`, runner per-mode, `phase_verify_report`
 - **Kelas & Fungsi Penting**:
   - `parse_args()`: Mengurai bendera seperti `-u`, `-m`, `--threads`, `--proxy`, `--headers`, `--dry-run`.
   - `bootstrap()` / `main()`: Inisialisasi loop async dan pemilihan runner pipeline.
@@ -435,8 +437,11 @@ verdamt-snipe/
 │   ├── audit.py                  # AuditLogger & generator replay curl
 │   ├── browser_pool.py           # SharedBrowserPool (Playwright singleton)
 │   ├── circuit_breaker.py        # Proteksi pemutusan koneksi otomatis
-│   ├── cli_parser.py             # Parser argumen baris perintah
+│   ├── cli_parser.py             # Grammar bendera CLI (parsing saja)
+│   ├── orchestrator.py           # Entry async_main + crash-safety + TUI mode
+│   ├── modes.py                  # Dispatch mode & runner pipeline
 │   ├── client.py                 # AsyncNetworkEngine (HTTP/2 async client)
+│   ├── http_client.py            # Stack HTTP sync (http_send, GhostMode)
 │   ├── go_bridge.py              # Interface eksekusi binary Go Native
 │   ├── policy.py                 # ScanPolicy & batasan budget request
 │   ├── proxy.py                  # ProxyManager (HTTP/SOCKS5 rotating pool)
