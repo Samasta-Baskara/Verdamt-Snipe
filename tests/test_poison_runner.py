@@ -3,14 +3,15 @@ import time
 import unittest
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
 from runners.poison import (
-    PoisonState,
     _BACKUP_EXTS,
     EXT_PASS_MAX,
+    PoisonState,
     _adaptive_wave_loop,
+    _brute_login_form,
     _budget_ok,
     _budget_warning,
-    _brute_login_form,
     _classify_login_attempt,
     _cookie_names,
     _cred_list,
@@ -285,6 +286,7 @@ class TestCancellationClosesSockets(unittest.TestCase):
 
     def test_cancelled_slowloris_still_closes_writer(self):
         from unittest.mock import patch
+
         from modules.web.server_side.connection_exhaust import ConnectionExhaust
 
         ex = ConnectionExhaust("https://example.com", timeout=30)
@@ -309,6 +311,7 @@ class TestCancellationClosesSockets(unittest.TestCase):
 
     def test_cancelled_smuggle_request_still_closes_writer(self):
         from unittest.mock import patch
+
         from modules.web.server_side import smuggling
 
         fake_writer = MagicMock()
@@ -346,13 +349,13 @@ class TestPhase0Budget(unittest.IsolatedAsyncioTestCase):
     the wave clock, so --max-time runs ended with a single wave."""
 
     def _args(self, max_duration: int) -> dict[str, Any]:
-        return dict(
-            target="example.com", seed_url="https://example.com/",
-            services=[{"url": "https://example.com/"}], subs=[],
-            scan_urls=["https://example.com/"], scope_guard=None,
-            session_manager=MagicMock(), async_engine=MagicMock(),
-            is_turbo=False, max_duration=max_duration, policy=None,
-        )
+        return {
+            "target": "example.com", "seed_url": "https://example.com/",
+            "services": [{"url": "https://example.com/"}], "subs": [],
+            "scan_urls": ["https://example.com/"], "scope_guard": None,
+            "session_manager": MagicMock(), "async_engine": MagicMock(),
+            "is_turbo": False, "max_duration": max_duration, "policy": None,
+        }
 
     async def test_phase0_time_does_not_eat_wave_budget(self):
         from unittest.mock import patch
@@ -592,8 +595,9 @@ class TestBackoffGate(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state._backoff_notice_wave, -1)
 
     async def test_bruteforce_holds_and_notices_once(self):
-        from core.host_ratelimit import HostRateLimiter
         from unittest.mock import patch
+
+        from core.host_ratelimit import HostRateLimiter
 
         state = self._state()
         lim = HostRateLimiter(default_max_concurrent=5)
@@ -638,8 +642,9 @@ class TestBudgetAccounting(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unlimited.charge(5000, reason="x"), 5000)
 
     def test_run_ffuf_debits_and_truncates_to_budget(self):
-        from core.policy import ScanPolicy
         from unittest.mock import patch
+
+        from core.policy import ScanPolicy
         p = ScanPolicy("example.com", max_requests=120, max_concurrency=50)
         words = [f"w{i}" for i in range(1000)]
         with patch("runners.poison.flood._find_tool", return_value="/usr/bin/true"):
@@ -650,8 +655,9 @@ class TestBudgetAccounting(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, [])
 
     def test_run_ffuf_charges_nothing_below_overhead(self):
-        from core.policy import ScanPolicy
         from unittest.mock import patch
+
+        from core.policy import ScanPolicy
         p = ScanPolicy("example.com", max_requests=5, max_concurrency=50)
         with patch("runners.poison.flood._find_tool", return_value="/usr/bin/true"):
             out = asyncio.run(_run_ffuf("https://example.com/", ["a"] * 50,
@@ -660,8 +666,9 @@ class TestBudgetAccounting(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(p.requests_sent, 0)
 
     async def test_exhaust_blocked_when_budget_cannot_cover_sockets(self):
-        from core.policy import ScanPolicy
         from unittest.mock import patch
+
+        from core.policy import ScanPolicy
         p = ScanPolicy("example.com", max_requests=700, max_concurrency=50)
         state = self._state(p)
         with patch("modules.web.server_side.connection_exhaust.ConnectionExhaust.run",
@@ -671,8 +678,9 @@ class TestBudgetAccounting(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(p.requests_sent, 0)
 
     async def test_exhaust_debits_750_when_it_runs(self):
-        from core.policy import ScanPolicy
         from unittest.mock import patch
+
+        from core.policy import ScanPolicy
         p = ScanPolicy("example.com", max_requests=5000, max_concurrency=50)
         state = self._state(p)
         with patch("modules.web.server_side.connection_exhaust.ConnectionExhaust.run",
@@ -687,9 +695,8 @@ class TestBudgetAccounting(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(SMUGGLE_REQUEST_BOUND, 10)
 
     def test_uncounted_tool_is_gated_not_debited(self):
+        from core.external_tools import UNCOUNTED_TOOL_FLOOR, _uncounted_tool_allowed, run_dalfox
         from core.policy import ScanPolicy
-        from core.external_tools import (_uncounted_tool_allowed,
-                                         UNCOUNTED_TOOL_FLOOR, run_dalfox)
         p = ScanPolicy("example.com", max_requests=UNCOUNTED_TOOL_FLOOR - 1,
                        max_concurrency=50)
         self.assertFalse(_uncounted_tool_allowed(p, "dalfox"))
@@ -713,8 +720,9 @@ class TestPostPayloadPass(unittest.IsolatedAsyncioTestCase):
         return st
 
     async def test_reflector_is_fuzzed_and_detected(self):
-        from modules.scanners.scanner import SmartPayloadGenerator
         from urllib.parse import parse_qs
+
+        from modules.scanners.scanner import SmartPayloadGenerator
         state = self._state()
         post_bodies = []
 
@@ -1106,6 +1114,7 @@ class TestSSRFScanParallel(unittest.TestCase):
 
     def test_cloud_probes_gather_not_sequential(self):
         import time as _time
+
         from modules.web.server_side.ssrf_scanner import SSRFScanner
 
         scanner = SSRFScanner(MagicMock())
@@ -1406,8 +1415,9 @@ class TestLoginFormBrute(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(st.findings, [])
 
     async def test_aspx_viewstate_replayed(self):
-        import runners.poison.flood as flood_mod
         from urllib.parse import parse_qs
+
+        import runners.poison.flood as flood_mod
         st = self._state()
         posts = []
 
@@ -1427,8 +1437,9 @@ class TestLoginFormBrute(unittest.IsolatedAsyncioTestCase):
             self.assertIn("txtUser", fields)
 
     async def test_cap_bounds_attempts(self):
-        import runners.poison.flood as flood_mod
         from urllib.parse import parse_qs
+
+        import runners.poison.flood as flood_mod
         st = self._state()
         posts = []
 
@@ -1767,8 +1778,8 @@ class TestIntegratedPipeline(unittest.IsolatedAsyncioTestCase):
         types = {f["type"] for f in st.findings}
         self.assertIn("git_exposure", types)          # Paket 1
         self.assertIn("weak_credentials", types)      # Paket 2
-        creds = [f for f in st.findings
-                 if f["type"] == "weak_credentials"][0]
+        creds = next(f for f in st.findings
+                 if f["type"] == "weak_credentials")
         self.assertEqual(creds["confidence"], "confirmed")
 
 

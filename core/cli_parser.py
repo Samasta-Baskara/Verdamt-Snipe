@@ -7,7 +7,6 @@ changes); verd.py stays a thin entry point (`verd:main` in pyproject).
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 VERSION = "1.4.5 - NEXUS"
@@ -16,7 +15,7 @@ VULN_THREADS = 25
 
 
 def parse_target(arg):
-    if arg.startswith("http://") or arg.startswith("https://"):
+    if arg.startswith(("http://", "https://")):
         parsed = urlparse(arg)
         return parsed.netloc, arg
     return arg, f"https://{arg}"
@@ -131,7 +130,7 @@ _SHORT_ALIASES = {
 }
 
 
-def parse_scan_args(argv: List[str]) -> Tuple[Optional[str], List[str], Optional[str]]:
+def parse_scan_args(argv: list[str]) -> tuple[str | None, list[str], str | None]:
     """Parse target/resume layout while keeping legacy free-form flags intact.
 
     The target may sit before or after flags (``snipe --recon target.com`` and
@@ -176,7 +175,7 @@ def parse_scan_args(argv: List[str]) -> Tuple[Optional[str], List[str], Optional
     return target_arg, flags, resume_path
 
 
-def _flag_value(flags: List[str], name: str) -> Optional[str]:
+def _flag_value(flags: list[str], name: str) -> str | None:
     """Read a value from either ``--flag value`` or ``--flag=value``."""
     for idx, flag in enumerate(flags):
         if flag == name and idx + 1 < len(flags):
@@ -186,7 +185,7 @@ def _flag_value(flags: List[str], name: str) -> Optional[str]:
     return None
 
 
-def parse_scan_policy_options(flags: List[str]) -> Dict:
+def parse_scan_policy_options(flags: list[str]) -> dict:
     """Parse bounded operational controls without changing scan mode parsing."""
     options = {
         "mode": "passive" if "--passive" in flags else "active",

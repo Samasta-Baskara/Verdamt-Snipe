@@ -1,4 +1,5 @@
 import unittest
+
 from core.secret_scanner import SecretScanner, shannon_entropy
 from modules.web.api_auth.graphql_profiler import GraphQLProfiler
 

@@ -1,14 +1,12 @@
 """
 Wordlist Manager — Auto-detect local wordlists, fallback download from SecLists/Assetnote.
 """
-import os
 import gzip
-from typing import Dict, List, Optional
-from urllib.request import urlopen
+import os
 from urllib.error import URLError
+from urllib.request import urlopen
 
-from core.ui import i, s, w, p, ph, G, R, C, N
-
+from core.ui import C, G, N, R, i, p, ph, s, w
 
 # Config
 
@@ -94,7 +92,16 @@ _FALLBACK_AUTH = [
 
 # Scanner
 
-def scan_local_wordlists() -> Dict[str, str]:
+def _first_kb_len(path: str) -> int:
+    """First-1KB size comparison helper (context-managed one-shot read)."""
+    try:
+        with open(path, errors="ignore") as fh:
+            return len(fh.read(1000))
+    except OSError:
+        return 0
+
+
+def scan_local_wordlists() -> dict[str, str]:
     """Scan common locations for existing wordlist files.
     
     Returns: {category: filepath} for found wordlists.
@@ -111,9 +118,10 @@ def scan_local_wordlists() -> Dict[str, str]:
                 fname = f.lower()
 
                 # Categorize by filename patterns
-                if any(k in fname for k in ["common", "directory", "dir", "discovery", "path"]):
-                    if "dir" not in found or len(open(fp, errors="ignore").read(1000)) > len(open(found.get("dir", fp), errors="ignore").read(1000)):
-                        found["dir"] = fp
+                if (any(k in fname for k in ["common", "directory", "dir", "discovery", "path"])
+                        and ("dir" not in found
+                             or _first_kb_len(fp) > _first_kb_len(found.get("dir", fp)))):
+                    found["dir"] = fp
                 if any(k in fname for k in ["auth", "login", "admin"]):
                     found.setdefault("auth", fp)
                 if any(k in fname for k in ["extension", "ext"]):
@@ -134,7 +142,7 @@ def count_entries(filepath: str) -> int:
         return 0
 
 
-def load_words(filepath: str, limit: int = 0) -> List[str]:
+def load_words(filepath: str, limit: int = 0) -> list[str]:
     """Load words from a file, optionally limited."""
     words = []
     try:
@@ -152,7 +160,7 @@ def load_words(filepath: str, limit: int = 0) -> List[str]:
 
 # Downloader
 
-def download_wordlist(name: str, force: bool = False) -> Optional[str]:
+def download_wordlist(name: str, force: bool = False) -> str | None:
     """Download a wordlist from predefined sources. Returns path or None."""
     source = _SOURCES.get(name)
     if not source:
@@ -189,7 +197,7 @@ def download_wordlist(name: str, force: bool = False) -> Optional[str]:
         return None
 
 
-async def auto_setup_wordlists(force: bool = False) -> Dict[str, str]:
+async def auto_setup_wordlists(force: bool = False) -> dict[str, str]:
     """Auto-detect local wordlists, download missing ones."""
     ph("WORDLIST MANAGER: Setup")
     os.makedirs(WORDLIST_DIR, exist_ok=True)
@@ -247,7 +255,7 @@ class WordlistProvider:
             self._scanned = True
         return self._local
 
-    def get_dir_wordlist(self, wave: int = 1, limit: int = 0) -> List[str]:
+    def get_dir_wordlist(self, wave: int = 1, limit: int = 0) -> list[str]:
         """Get directory bruteforce wordlist. Returns list of words."""
         self.scan()
         path = self._local.get("dir", "")
@@ -260,7 +268,7 @@ class WordlistProvider:
             return words[:max(limit, 3000)] if limit else words
         return _FALLBACK_DIRS  # Embedded fallback
 
-    def get_auth_wordlist(self, wave: int = 1, limit: int = 0) -> List[str]:
+    def get_auth_wordlist(self, wave: int = 1, limit: int = 0) -> list[str]:
         """Get auth/endpoint bruteforce wordlist. Returns list of words.
 
         Rotates by wave like the dir wordlist — otherwise every wave re-sends
@@ -276,7 +284,7 @@ class WordlistProvider:
             return words
         return _FALLBACK_AUTH
 
-    def get_extension_wordlist(self) -> List[str]:
+    def get_extension_wordlist(self) -> list[str]:
         """Get file extension wordlist."""
         self.scan()
         path = self._local.get("extension", "")

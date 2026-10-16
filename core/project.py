@@ -1,8 +1,7 @@
 import json
 import os
 import re
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict
+from dataclasses import asdict, dataclass, field
 
 OUTPUT_DIR = "outputs"
 
@@ -21,15 +20,15 @@ class ProjectState:
     seed_url: str = ""
     mode: str = ""
     version: str = ""
-    subs: List[str] = field(default_factory=list)
-    services: List[Dict] = field(default_factory=list)
-    scan_urls: List[str] = field(default_factory=list)
-    findings: List[Dict] = field(default_factory=list)
-    params: Dict = field(default_factory=dict)
-    target_wafs: List[str] = field(default_factory=list)
-    auth_tokens: Dict = field(default_factory=dict)
-    cookies: Dict = field(default_factory=dict)
-    local_storage: Dict = field(default_factory=dict)
+    subs: list[str] = field(default_factory=list)
+    services: list[dict] = field(default_factory=list)
+    scan_urls: list[str] = field(default_factory=list)
+    findings: list[dict] = field(default_factory=list)
+    params: dict = field(default_factory=dict)
+    target_wafs: list[str] = field(default_factory=list)
+    auth_tokens: dict = field(default_factory=dict)
+    cookies: dict = field(default_factory=dict)
+    local_storage: dict = field(default_factory=dict)
     t0: float = 0.0
     phase_done_surface: bool = False
     phase_done_recon: bool = False

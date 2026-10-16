@@ -1,4 +1,3 @@
-from typing import List, Dict
 
 
 class ContextAwareFixGenerator:
@@ -281,7 +280,7 @@ return [
 
 
     @classmethod
-    def generate_fix(cls, finding_type: str, tech_stack: List[str]) -> Dict[str, str]:
+    def generate_fix(cls, finding_type: str, tech_stack: list[str]) -> dict[str, str]:
         """
         Generates a remediation description and code snippet matching the vulnerability type
         and detected framework.

@@ -1,7 +1,8 @@
 import json
 import re
 import urllib.parse
-from typing import Dict, List, Any
+from typing import Any
+
 
 class OpenAPIParser:
     """
@@ -11,11 +12,11 @@ class OpenAPIParser:
 
     def __init__(self, base_url: str = ""):
         self.base_url = base_url.rstrip("/")
-        self.endpoints: List[str] = []
-        self.params: Dict[str, List[str]] = {}
-        self.headers: Dict[str, str] = {}
+        self.endpoints: list[str] = []
+        self.params: dict[str, list[str]] = {}
+        self.headers: dict[str, str] = {}
 
-    def parse_spec(self, content: str, spec_url: str = "") -> Dict[str, Any]:
+    def parse_spec(self, content: str, spec_url: str = "") -> dict[str, Any]:
         """Parse JSON or raw string specification content."""
         if not content:
             return {"endpoints": [], "params": {}}
@@ -53,7 +54,7 @@ class OpenAPIParser:
             self.endpoints.append(full_url)
 
             param_list = []
-            for method, spec in path_item.items():
+            for spec in path_item.values():
                 if not isinstance(spec, dict):
                     continue
 
@@ -66,7 +67,7 @@ class OpenAPIParser:
                 request_body = spec.get("requestBody", {})
                 if isinstance(request_body, dict):
                     content_map = request_body.get("content", {})
-                    for _, media_spec in content_map.items():
+                    for media_spec in content_map.values():
                         schema = media_spec.get("schema", {})
                         param_list.extend(self._extract_schema_keys(schema))
 
@@ -133,7 +134,7 @@ class OpenAPIParser:
                     self.params[norm_path].extend(param_list)
                     self.params[norm_path] = list(set(self.params[norm_path]))
 
-    def _extract_schema_keys(self, obj: Any) -> List[str]:
+    def _extract_schema_keys(self, obj: Any) -> list[str]:
         keys = []
         if isinstance(obj, dict):
             if "properties" in obj and isinstance(obj["properties"], dict):

@@ -7,12 +7,12 @@ Usage:
 """
 
 import os
-import sys
 import socket
 import subprocess
+import sys
 
 
-def check_ip(proxy: str = None) -> dict:
+def check_ip(proxy: str | None = None) -> dict:
     """Check current IP address (direct vs through proxy)."""
     result = {"direct_ip": None, "proxy_ip": None, "ip_leak": True}
 
@@ -20,7 +20,7 @@ def check_ip(proxy: str = None) -> dict:
     try:
         r = subprocess.run(
             ["curl", "-s", "--max-time", "5", "https://api.ipify.org"],
-            capture_output=True, text=True, timeout=8,
+            capture_output=True, text=True, timeout=8, check=False,
         )
         if r.returncode == 0:
             result["direct_ip"] = r.stdout.strip()
@@ -32,7 +32,7 @@ def check_ip(proxy: str = None) -> dict:
         try:
             r = subprocess.run(
                 ["curl", "-s", "--max-time", "5", "--proxy", proxy, "https://api.ipify.org"],
-                capture_output=True, text=True, timeout=8,
+                capture_output=True, text=True, timeout=8, check=False,
             )
             if r.returncode == 0:
                 result["proxy_ip"] = r.stdout.strip()
@@ -46,7 +46,7 @@ def check_ip(proxy: str = None) -> dict:
     return result
 
 
-def check_dns(proxy: str = None) -> dict:
+def check_dns(proxy: str | None = None) -> dict:
     """Check for DNS leaks."""
     result = {"local_dns": [], "doh_dns": [], "dns_leak": True}
 
@@ -111,7 +111,7 @@ def check_env_leak() -> dict:
     return result
 
 
-def run_full_check(proxy: str = None) -> dict:
+def run_full_check(proxy: str | None = None) -> dict:
     """Run full OPSEC checklist."""
     results = {
         "ip": check_ip(proxy),
@@ -143,47 +143,47 @@ def print_results(results: dict):
 
     # IP Check
     ip = results["ip"]
-    print(f"\n  [IP ADDRESS]")
+    print("\n  [IP ADDRESS]")
     print(f"  Direct IP:  {ip['direct_ip'] or 'N/A'}")
     print(f"  Proxy IP:   {ip['proxy_ip'] or 'N/A'}")
     if ip["ip_leak"]:
-        print(f"  Status:     !! IP LEAK DETECTED !!")
+        print("  Status:     !! IP LEAK DETECTED !!")
     else:
-        print(f"  Status:     OK — IP hidden behind proxy")
+        print("  Status:     OK — IP hidden behind proxy")
 
     # DNS Check
     dns = results["dns"]
-    print(f"\n  [DNS LEAK]")
+    print("\n  [DNS LEAK]")
     print(f"  Local DNS:  {', '.join(dns['local_dns'][:3]) or 'N/A'}")
     print(f"  DoH DNS:    {', '.join(dns['doh_dns'][:3]) or 'N/A'}")
     if dns["dns_leak"]:
-        print(f"  Status:     !! DNS LEAK DETECTED !!")
+        print("  Status:     !! DNS LEAK DETECTED !!")
     else:
-        print(f"  Status:     OK — DNS routed through DoH/proxy")
+        print("  Status:     OK — DNS routed through DoH/proxy")
 
     # WebRTC Check
     webrtc = results["webrtc"]
-    print(f"\n  [WebRTC]")
+    print("\n  [WebRTC]")
     if webrtc["webRTC_risk"]:
-        print(f"  Status:     !! WebRTC MAY LEAK IP !!")
+        print("  Status:     !! WebRTC MAY LEAK IP !!")
     else:
-        print(f"  Status:     OK — WebRTC disabled")
+        print("  Status:     OK — WebRTC disabled")
     print(f"  Note:       {webrtc['note']}")
 
     # Env Check
     env = results["env"]
-    print(f"\n  [ENVIRONMENT]")
+    print("\n  [ENVIRONMENT]")
     if env["env_set"]:
-        print(f"  Proxy env:  SET")
+        print("  Proxy env:  SET")
         for var, val in env["vars"].items():
             print(f"    {var} = {val}")
     else:
-        print(f"  Proxy env:  NOT SET")
+        print("  Proxy env:  NOT SET")
 
     # Issues
     print(f"\n  {'=' * 46}")
     if results["safe"]:
-        print(f"  STATUS: ALL CLEAR — No leaks detected")
+        print("  STATUS: ALL CLEAR — No leaks detected")
     else:
         print(f"  STATUS: {len(results['issues'])} ISSUE(S) FOUND")
         for issue in results["issues"]:
@@ -193,15 +193,15 @@ def print_results(results: dict):
 
     # Recommendations
     if not results["safe"]:
-        print(f"\n  RECOMMENDATIONS:")
+        print("\n  RECOMMENDATIONS:")
         if ip["ip_leak"]:
-            print(f"    1. Set proxy: --proxy socks5://vps_ip:1080")
-            print(f"    2. Or export: export ALL_PROXY=socks5://vps_ip:1080")
+            print("    1. Set proxy: --proxy socks5://vps_ip:1080")
+            print("    2. Or export: export ALL_PROXY=socks5://vps_ip:1080")
         if dns["dns_leak"]:
-            print(f"    3. Use DoH: enabled automatically with --proxy")
-            print(f"    4. Or set: network.proxy.socks_remote_dns = true in Firefox")
+            print("    3. Use DoH: enabled automatically with --proxy")
+            print("    4. Or set: network.proxy.socks_remote_dns = true in Firefox")
         if webrtc["webRTC_risk"]:
-            print(f"    5. Harden browser: python3 -m core.browser_harden")
+            print("    5. Harden browser: python3 -m core.browser_harden")
 
     print()
 

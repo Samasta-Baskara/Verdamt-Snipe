@@ -1,4 +1,5 @@
 import asyncio
+
 from core.external_tools import run_httpx, run_subfinder
 from core.ui import ph
 from modules.recon import HTTPProber, SubdomainFinder
@@ -16,7 +17,7 @@ async def run_surface_scan(target: str, seed_url: str, scope_guard, proxy=None,
                                  proxy=proxy),
             timeout=30
         )
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         subs = []
     subs = subs or []
     if not subs:
@@ -26,7 +27,7 @@ async def run_surface_scan(target: str, seed_url: str, scope_guard, proxy=None,
                 sub_finder.run(),
                 timeout=20
             )
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             subs = []
         subs = subs or []
     if not subs:
@@ -47,7 +48,7 @@ async def run_surface_scan(target: str, seed_url: str, scope_guard, proxy=None,
             asyncio.to_thread(run_httpx, targets_to_probe, timeout=60, proxy=proxy, policy=policy),
             timeout=60
         )
-    except (asyncio.TimeoutError, Exception):
+    except (TimeoutError, Exception):
         services = []
     services = services or []
     if not services:
@@ -61,7 +62,7 @@ async def run_surface_scan(target: str, seed_url: str, scope_guard, proxy=None,
                            rate_limiter=get_global_rate_limiter()).run(),
                 timeout=60
             )
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             services = []
         services = services or []
 

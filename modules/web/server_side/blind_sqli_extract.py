@@ -1,7 +1,7 @@
 """Blind SQLi Data Extraction via Binary Search with DBMS Auto-detection."""
 
 import time
-from typing import Dict, List, Callable
+from collections.abc import Callable
 
 
 class BlindSQLiExtractor:
@@ -107,7 +107,7 @@ class BlindSQLiExtractor:
             result += chr(low)
         return result
 
-    async def extract_all(self, url: str, param: str) -> List[Dict]:
+    async def extract_all(self, url: str, param: str) -> list[dict]:
         """Auto-detects DB type first, then extracts common database info."""
         findings = []
         db_flavor = await self.detect_db(url, param)

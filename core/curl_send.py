@@ -7,13 +7,12 @@ sends the domain as SNI while routing traffic to the origin IP.
 import os
 import subprocess
 import tempfile
-from typing import Dict
 from urllib.parse import urlparse
 
 
-def curl_send(url: str, resolve_domain: str = None, resolve_ip: str = None,
-              method: str = "GET", headers: dict = None, data: str = None,
-              timeout: int = 10, proxy: str = None, policy=None) -> Dict:
+def curl_send(url: str, resolve_domain: str | None = None, resolve_ip: str | None = None,
+              method: str = "GET", headers: dict | None = None, data: str | None = None,
+              timeout: int = 10, proxy: str | None = None, policy=None) -> dict:
     """HTTP request via curl with optional --resolve for origin IP scan.
 
     When resolve_domain + resolve_ip are set, uses curl's --resolve flag:

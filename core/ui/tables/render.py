@@ -4,22 +4,53 @@ Split verbatim from the old single-file core/ui/tables.py (no logic
 changes). `console` is intentionally NOT imported by name here — every
 renderer reads core.ui.styles.console late so tests can redirect it.
 """
-from core.ui import styles
-
 import re
 import time
-from typing import Dict, List, Optional, Tuple
 
-from rich.console import Group
 from rich.cells import cell_len
+from rich.console import Group
 from rich.text import Text
 
-from ..styles import (D_BG, D_PANEL, D_ELEV, D_EMERALD, D_TEAL, D_GOLD, D_GOLD_SOFT,
-                     D_TEXT, D_DIM, D_INFO, D_CRIT, D_BORDER)
-from .text import (_blank, _clip_cells, _fit, _wrap, _center_height,
-                   _fit_height, _frame, _hstack, _blank_line, LOGO_W, _SCROLLBAR_W)
-from .widgets import (_logo_rows, _event_lines, _stage_rows, _gauge,
-                      _sparkline, _findings_line, _bar_meter, GAUGE_W, GAUGE_H)
+from core.ui import styles
+
+from ..styles import (
+    D_BG,
+    D_BORDER,
+    D_CRIT,
+    D_DIM,
+    D_ELEV,
+    D_EMERALD,
+    D_GOLD,
+    D_GOLD_SOFT,
+    D_INFO,
+    D_PANEL,
+    D_TEAL,
+    D_TEXT,
+)
+from .text import (
+    _SCROLLBAR_W,
+    LOGO_W,
+    _blank,
+    _blank_line,
+    _center_height,
+    _clip_cells,
+    _fit,
+    _fit_height,
+    _frame,
+    _hstack,
+    _wrap,
+)
+from .widgets import (
+    GAUGE_H,
+    GAUGE_W,
+    _bar_meter,
+    _event_lines,
+    _findings_line,
+    _gauge,
+    _logo_rows,
+    _sparkline,
+    _stage_rows,
+)
 
 
 class _DashboardRender:
@@ -29,7 +60,7 @@ class _DashboardRender:
     """
 
     def _build_header(self, width: int, target: str, mode: str, status: str,
-                      elapsed: str, logo_rows: int) -> List[Text]:
+                      elapsed: str, logo_rows: int) -> list[Text]:
         """Header content lines: V emblem + wordmark + status/target/mode/elapsed."""
         bg = D_PANEL
         height = logo_rows
@@ -47,7 +78,7 @@ class _DashboardRender:
         logo = _logo_rows(logo_rows, bg)
         brand_x = LOGO_W + 2
 
-        blocks: List[Tuple[str, str, str, int]] = [
+        blocks: list[tuple[str, str, str, int]] = [
             ("◎", "Target", target, max(14, min(34, cell_len(target) + 2))),
             ("◈", "Mode", (mode or "—").upper(), max(10, len(mode or "—") + 4)),
             ("◔", "Elapsed", elapsed, 10),
@@ -64,7 +95,7 @@ class _DashboardRender:
         while chosen and _group_width(chosen) > room:
             chosen.pop()
 
-        items: List[Tuple[int, Text, Text]] = []   # ordered left → right
+        items: list[tuple[int, Text, Text]] = []   # ordered left → right
         if _group_width(chosen) <= room:
             pill_inner = cell_len(status_text) + 2
             p0 = Text(no_wrap=True, end="")
@@ -125,8 +156,8 @@ class _DashboardRender:
 
     # ── activity feed ──────────────────────────────────────────────────────
 
-    def _build_activity(self, width: int, height: int, events: List[Tuple],
-                        seq: int, anchor: Optional[int]) -> Tuple[List[Text], int]:
+    def _build_activity(self, width: int, height: int, events: list[tuple],
+                        seq: int, anchor: int | None) -> tuple[list[Text], int]:
         if width <= 0 or height <= 0:
             return [], seq
         if not events:
@@ -135,7 +166,7 @@ class _DashboardRender:
         content_w = max(8, width - _SCROLLBAR_W)
         oldest = seq - len(events) + 1
         budget = height
-        chosen: List[Tuple[int, int, int]] = []   # (seq, idx, lines)
+        chosen: list[tuple[int, int, int]] = []   # (seq, idx, lines)
 
         if anchor is None:
             for i in range(len(events) - 1, -1, -1):
@@ -152,8 +183,8 @@ class _DashboardRender:
                     break
                 chosen.append((seq - len(events) + 1 + i, i, len(lines)))
 
-        out: List[Text] = []
-        visible_idx: List[int] = []
+        out: list[Text] = []
+        visible_idx: list[int] = []
         for _, idx, _c in chosen:
             out.extend(_event_lines(events[idx], content_w, D_PANEL))
             visible_idx.append(idx)
@@ -163,7 +194,7 @@ class _DashboardRender:
 
         body = _fit_height(out, height, content_w, D_PANEL)
         bar = self._activity_scrollbar(height, len(events), visible_idx, anchor)
-        rows: List[Text] = []
+        rows: list[Text] = []
         for i in range(height):
             row = Text(no_wrap=True, end="")
             row.append_text(body[i])
@@ -173,8 +204,8 @@ class _DashboardRender:
         return rows, top_seq
 
     def _activity_scrollbar(self, height: int, total: int,
-                            visible_idx: List[int],
-                            anchor: Optional[int]) -> List[Tuple[str, str]]:
+                            visible_idx: list[int],
+                            anchor: int | None) -> list[tuple[str, str]]:
         """One (char, style) cell per row describing the feed scroll position.
 
         Drawn only while part of the history sits outside the window; the
@@ -189,9 +220,9 @@ class _DashboardRender:
         if top <= 0 and bottom >= total - 1:
             return cells                       # whole history on screen
         span = max(1, bottom - top + 1)
-        thumb_h = max(1, min(height, int(round(height * span / total))))
+        thumb_h = max(1, min(height, round(height * span / total)))
         travel = total - span
-        pos = 0 if travel <= 0 else int(round(top / travel * (height - thumb_h)))
+        pos = 0 if travel <= 0 else round(top / travel * (height - thumb_h))
         pos = max(0, min(height - thumb_h, pos))
         thumb_style = (f"bold {D_GOLD} on {D_PANEL}" if anchor is None
                        else f"bold {D_INFO} on {D_PANEL}")
@@ -221,7 +252,7 @@ class _DashboardRender:
 
     # ── pipeline window ────────────────────────────────────────────────────
 
-    def _pipeline_window(self, stages: List[Dict[str, str]], height: int):
+    def _pipeline_window(self, stages: list[dict[str, str]], height: int):
         """Return (visible stages, start index, spacer rows between stages)."""
         if not stages:
             return [], 0, 0
@@ -237,9 +268,9 @@ class _DashboardRender:
 
     def _build_metrics(self, width: int, height: int, rps: float, rps_frac: float,
                        pct: float, stage_num: int, total_stages: int, target: str,
-                       metrics: Dict[str, int], findings: int = 0,
-                       sev: Optional[Dict[str, int]] = None,
-                       rps_hist: Optional[List[float]] = None) -> List[Text]:
+                       metrics: dict[str, int], findings: int = 0,
+                       sev: dict[str, int] | None = None,
+                       rps_hist: list[float] | None = None) -> list[Text]:
         if width <= 0 or height <= 0:
             return []
         bg = D_PANEL
@@ -266,7 +297,7 @@ class _DashboardRender:
             items = [("◎", "Targets", target_val),
                      ("◈", "Subdomains", str(metrics.get("Subdomains", 0))),
                      ("⊙", "Endpoints", str(metrics.get("Endpoints", 0)))]
-            listing: List[Text] = []
+            listing: list[Text] = []
             for icon, label, value in items:
                 l0 = Text(no_wrap=True, end="")
                 l0.append(f"{icon} ", f"{D_TEAL} on {bg}")
@@ -296,7 +327,7 @@ class _DashboardRender:
         subs = str(metrics.get("Subdomains", 0))
         eps = str(metrics.get("Endpoints", 0))
 
-        def _counts(long_labels: bool) -> List[Text]:
+        def _counts(long_labels: bool) -> list[Text]:
             pairs = ([("Targets", target_val), ("Subdomains", subs), ("Endpoints", eps)]
                      if long_labels else
                      [("Targets", target_val), ("Subs", subs), ("Eps", eps)])
@@ -309,7 +340,7 @@ class _DashboardRender:
                 line.append(value, f"{D_EMERALD} on {bg}")
             return _wrap(line, width)
 
-        rows: List[Text] = []
+        rows: list[Text] = []
         if height >= 5:
             rows.append(_bar_meter("Request Rate", f"{rps:.1f} req/s", rps_frac,
                                    D_EMERALD, width, bg))
@@ -353,7 +384,7 @@ class _DashboardRender:
             t.append("●", f"{D_GOLD_SOFT} on {D_BG}")
             return t
 
-        def _head(parts: List[Tuple[str, str]]) -> Text:
+        def _head(parts: list[tuple[str, str]]) -> Text:
             t = Text(no_wrap=True, end="")
             for text, style in parts:
                 t.append(text, f"{style} on {D_BG}" if style else f"on {D_BG}")
@@ -406,8 +437,7 @@ class _DashboardRender:
             completed = sum(1 for s in snap_pipeline if s["status"] in ("completed", "skipped"))
             active = sum(1 for s in snap_pipeline if s["status"] == "active")
             total_stages = len(snap_pipeline) or 1
-            if completed > self._last_completed_count:
-                self._last_completed_count = completed
+            self._last_completed_count = max(self._last_completed_count, completed)
             if snap_status == "COMPLETED":
                 target_pct = 100.0
             elif snap_status in ("ERROR", "FAILED"):
@@ -454,7 +484,7 @@ class _DashboardRender:
             r.append("│", f"{D_BORDER} on {D_BG}")
             return _fit(r, tw, D_BG)
 
-        lines: List[Text] = []
+        lines: list[Text] = []
 
         if desktop:
             t = Text(no_wrap=True, end="")
@@ -536,7 +566,7 @@ class _DashboardRender:
             act_h = max(4, avail // 2)
             rest = avail - act_h
 
-            pieces: List[Text] = []
+            pieces: list[Text] = []
             act_lines, top_seq = self._build_activity(tw - 4, act_h - 2,
                                                        snap_events, snap_seq, snap_anchor)
             oldest = snap_seq - len(snap_events) + 1 if snap_events else snap_seq

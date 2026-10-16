@@ -1,12 +1,12 @@
-import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import re
-import asyncio
-from typing import List, Dict, Tuple, Optional
-from core.playwright_compat import PLAYWRIGHT_AVAILABLE
+import sys
 
-from core.ui import ph, i, p, w, s, draw_table, Spinner, G, Y, R, N, GY, W, C
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import asyncio
+import re
+
+from core.playwright_compat import PLAYWRIGHT_AVAILABLE
+from core.ui import GY, C, G, N, R, Spinner, W, Y, draw_table, i, p, ph, s, w
 
 # DOM XSS STATIC TAINT ANALYSIS
 
@@ -105,15 +105,15 @@ class DOMXSSScanner:
     without requiring a headless browser.
     """
 
-    def __init__(self, urls: List[str], threads: int = 10, network_engine=None):
+    def __init__(self, urls: list[str], threads: int = 10, network_engine=None):
         self.urls = urls
         self.threads = threads
         self.engine = network_engine
         self._sem = asyncio.Semaphore(self.threads)
         self.js_urls = self._filter_js_urls()
-        self.findings: List[Dict] = []
+        self.findings: list[dict] = []
 
-    def _filter_js_urls(self) -> List[str]:
+    def _filter_js_urls(self) -> list[str]:
         """Extract JS file URLs from the URL pool."""
         js_urls = []
         # Known vendor library filenames to skip (reduces noise & false positives)
@@ -141,9 +141,7 @@ class DOMXSSScanner:
             if any(lib in filename for lib in skip_libs):
                 continue
             # pola bundel/minified = artefak build library, bukan app code
-            if (filename.endswith(".min.js")
-                    or filename.endswith("-bundle.js")
-                    or ".bundle.js" in filename):
+            if (filename.endswith((".min.js", "-bundle.js")) or ".bundle.js" in filename):
                 continue
             if any(marker in path for marker in skip_path_markers):
                 continue
@@ -151,7 +149,7 @@ class DOMXSSScanner:
 
         return list(set(js_urls))
 
-    def _find_sources(self, content: str) -> List[Tuple[str, int, str]]:
+    def _find_sources(self, content: str) -> list[tuple[str, int, str]]:
         """Find all DOM XSS sources in JavaScript content.
         Returns: [(source_pattern, line_number, code_snippet), ...]
         """
@@ -160,7 +158,7 @@ class DOMXSSScanner:
         for line_num, line in enumerate(lines, 1):
             stripped = line.strip()
             # Skip comments
-            if stripped.startswith("//") or stripped.startswith("/*"):
+            if stripped.startswith(("//", "/*")):
                 continue
             
             for source_pattern in DOM_SOURCES:
@@ -171,7 +169,7 @@ class DOMXSSScanner:
         
         return found
 
-    def _find_sinks(self, content: str) -> List[Tuple[str, str, str, int, str]]:
+    def _find_sinks(self, content: str) -> list[tuple[str, str, str, int, str]]:
         """Find all DOM XSS sinks in JavaScript content.
         Returns: [(sink_pattern, sink_name, severity, line_number, code_snippet), ...]
         """
@@ -179,7 +177,7 @@ class DOMXSSScanner:
         lines = content.split("\n")
         for line_num, line in enumerate(lines, 1):
             stripped = line.strip()
-            if stripped.startswith("//") or stripped.startswith("/*"):
+            if stripped.startswith(("//", "/*")):
                 continue
             
             for sink_pattern, sink_name, severity in DOM_SINKS:
@@ -189,7 +187,7 @@ class DOMXSSScanner:
         
         return found
 
-    def _extract_function_scopes(self, content: str) -> List[Dict]:
+    def _extract_function_scopes(self, content: str) -> list[dict]:
         """
         Extract function boundaries from JavaScript.
         Works on both formatted and semi-minified code by tracking brace depth.
@@ -233,16 +231,17 @@ class DOMXSSScanner:
 
         return scopes
 
-    def _get_scope_for_line(self, line_num: int, scopes: List[Dict]) -> Optional[Dict]:
+    def _get_scope_for_line(self, line_num: int, scopes: list[dict]) -> dict | None:
         """Find the innermost function scope containing a given line."""
         best = None
         for scope in scopes:
-            if scope["start"] <= line_num <= scope["end"]:
-                if best is None or (scope["end"] - scope["start"]) < (best["end"] - best["start"]):
-                    best = scope
+            if (scope["start"] <= line_num <= scope["end"]
+                    and (best is None or (scope["end"] - scope["start"])
+                         < (best["end"] - best["start"]))):
+                best = scope
         return best
 
-    def _trace_taint(self, content: str, sources: list, sinks: list) -> List[Dict]:
+    def _trace_taint(self, content: str, sources: list, sinks: list) -> list[dict]:
         """
         Scope-aware taint tracking with transitive propagation.
         
@@ -291,7 +290,7 @@ class DOMXSSScanner:
             new_tainted = {}
             for line_num, line in enumerate(lines, 1):
                 stripped = line.strip()
-                if stripped.startswith("//") or stripped.startswith("/*"):
+                if stripped.startswith(("//", "/*")):
                     continue
                 # Look for assignments like: var_b = transform(var_a)
                 assign_match = re.match(
@@ -318,7 +317,7 @@ class DOMXSSScanner:
             # Check if sink line has a sanitizer guard
             is_sanitized = False
             for san_pat in sanitizer_patterns:
-                if re.search(san_pat, sink_snippet, re.I):
+                if re.search(san_pat, sink_snippet, re.IGNORECASE):
                     is_sanitized = True
                     break
             if is_sanitized:
@@ -369,7 +368,7 @@ class DOMXSSScanner:
 
         return tainted_flows
 
-    def _detect_prototype_pollution(self, content: str) -> List[Dict]:
+    def _detect_prototype_pollution(self, content: str) -> list[dict]:
         """
         Detect Prototype Pollution patterns in JavaScript.
         Looks for dangerous object merge/extend patterns with user input.
@@ -389,7 +388,7 @@ class DOMXSSScanner:
         # Check if user input flows to merge target
         for line_num, line in enumerate(lines, 1):
             stripped = line.strip()
-            if stripped.startswith("//") or stripped.startswith("/*"):
+            if stripped.startswith(("//", "/*")):
                 continue
 
             for pat, desc in merge_patterns:
@@ -434,7 +433,7 @@ class DOMXSSScanner:
 
         return findings
 
-    def _analyze_js_content(self, content: str) -> List[Dict]:
+    def _analyze_js_content(self, content: str) -> list[dict]:
         """Analyze JS content for DOM XSS and Prototype Pollution."""
         all_sources = self._find_sources(content)
         all_sinks = self._find_sinks(content)
@@ -449,7 +448,7 @@ class DOMXSSScanner:
         
         return flows
 
-    async def _scan_url(self, url: str) -> List[Dict]:
+    async def _scan_url(self, url: str) -> list[dict]:
         """Scan a single JS file for DOM XSS patterns with chunked parsing for minified JS."""
         local_findings = []
         try:
@@ -478,9 +477,9 @@ class DOMXSSScanner:
         
         return local_findings
 
-    def _analyze_inline_scripts(self, body: str) -> List[Dict]:
+    def _analyze_inline_scripts(self, body: str) -> list[dict]:
         flows = []
-        scripts = re.findall(r'<script[^>]*>(.*?)</script>', body, re.DOTALL | re.I)
+        scripts = re.findall(r'<script[^>]*>(.*?)</script>', body, re.DOTALL | re.IGNORECASE)
         for script_content in scripts:
             if len(script_content.strip()) < 10:
                 continue
@@ -490,7 +489,7 @@ class DOMXSSScanner:
                 flows.extend(self._trace_taint(script_content, sources, sinks))
         return flows
 
-    async def _scan_inline_scripts(self, url: str) -> List[Dict]:
+    async def _scan_inline_scripts(self, url: str) -> list[dict]:
         """Scan inline <script> blocks in HTML pages for DOM XSS."""
         local_findings = []
         try:
@@ -517,7 +516,7 @@ class DOMXSSScanner:
         
         return local_findings
 
-    async def run(self) -> List[Dict]:
+    async def run(self) -> list[dict]:
         if not self.js_urls and not self.urls:
             return []
         
@@ -617,7 +616,7 @@ class DOMXSSScanner:
             f"<iframe src=\"javascript:window.__dom_xss='{canary_token}'\"></iframe>",
             f"<input autofocus onfocus=\"window.__dom_xss='{canary_token}'\">",
             f"<details open toggle=\"window.__dom_xss='{canary_token}'\">",
-            f"<form id=__dom_xss><input name=attributes></form>",  # DOM Clobbering
+            "<form id=__dom_xss><input name=attributes></form>",  # DOM Clobbering
             f"<a id=__dom_xss href=\"javascript:window.__dom_xss='{canary_token}'\">test</a>",
         ]
 

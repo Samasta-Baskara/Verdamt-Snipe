@@ -1,8 +1,9 @@
-import re
 import asyncio
+import re
 from urllib.parse import urljoin, urlparse
-from typing import Dict
-from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, N, W
+
+from core.ui import G, N, Spinner, W, Y, draw_table, i, p, ph, w
+
 
 class DeepCrawler:
     """Advanced crawler for deeper endpoint discovery and hidden path extraction."""
@@ -28,13 +29,11 @@ class DeepCrawler:
 
     def _looks_like_static_js_noise(self, value: str) -> bool:
         if not value: return True
-        if value.startswith("javascript:") or value.startswith("mailto:") or value.startswith("tel:") or value.startswith("#"):
+        if value.startswith(("javascript:", "mailto:", "tel:", "#")):
             return True
         if any(ch in value for ch in ["+", "{", "}", "(", ")", "'", '"', "`", "\\"]):
             return True
-        if len(value) > 180 or re.search(r"\s", value):
-            return True
-        return False
+        return bool(len(value) > 180 or re.search(r"\s", value))
 
     def _add_param_candidate(self, name: str):
         name = (name or "").strip()
@@ -43,14 +42,14 @@ class DeepCrawler:
             return
         if lower in ["true", "false", "null", "undefined", "class", "style", "href", "src", "action"]:
             return
-        if lower in self.HIGH_SIGNAL_PARAMS or lower.endswith("_id") or lower.endswith("id"):
+        if lower in self.HIGH_SIGNAL_PARAMS or lower.endswith(("_id", "id")):
             self.params.add(name)
 
     async def _crawl_worker(self, stop_event):
         while not stop_event.is_set():
             try:
                 url, depth = await asyncio.wait_for(self._queue.get(), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # No new items for 2s — check if we should stop
                 continue
             except asyncio.CancelledError:
@@ -68,7 +67,7 @@ class DeepCrawler:
                     body = r["body"]
 
                     # Extract from attributes, NOW INCLUDES RELATIVE PATHS
-                    tags = re.findall(r'(?:href|src|action|data-url|data-href)=["\']([^"\']+)["\']', body, re.I)
+                    tags = re.findall(r'(?:href|src|action|data-url|data-href)=["\']([^"\']+)["\']', body, re.IGNORECASE)
                     for link in tags:
                         if self._looks_like_static_js_noise(link):
                             continue
@@ -76,8 +75,9 @@ class DeepCrawler:
                             continue
 
                         full_url = urljoin(url, link).split("#")[0].rstrip("/")
-                        if self.domain in urlparse(full_url).netloc:
-                            if full_url not in self.visited and full_url not in self.endpoints:
+                        if (self.domain in urlparse(full_url).netloc
+                                and full_url not in self.visited
+                                and full_url not in self.endpoints):
                                 self.endpoints.add(full_url)
                                 if depth < self.max_depth and len(self.visited) + self._queue.qsize() < self.max_urls:
                                     self._queue.put_nowait((full_url, depth + 1))
@@ -93,7 +93,7 @@ class DeepCrawler:
 
             self._queue.task_done()
 
-    async def run(self) -> Dict:
+    async def run(self) -> dict:
         ph("PHASE 1.2: DEEP CRAWLER (Async Recursive)")
         i(f"Starting crawl from {W}{self.base_url}{N} (Max Depth: {self.max_depth})")
 

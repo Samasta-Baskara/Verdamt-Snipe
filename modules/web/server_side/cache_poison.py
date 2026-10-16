@@ -5,13 +5,11 @@ Cache Poisoning & Unkeyed Header Discovery
 """
 import asyncio
 import random
-from typing import Dict, List
 from urllib.parse import urlparse
 
 from core.client import AsyncNetworkEngine
-from core.ui import i, s, w, ph, G, R, C, W, N
+from core.ui import C, G, N, R, W, i, ph, s, w
 from modules.mutator import mutator
-
 
 # Headers that might be unkeyed by CDNs (Cloudflare, CloudFront, Akamai, Varnish, etc.)
 _UNKEYED_CANDIDATES = [
@@ -50,7 +48,7 @@ async def probe_unkeyed_headers(
     url: str,
     engine: AsyncNetworkEngine,
     session_manager=None,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Probe for unkeyed headers that can poison cache.
 
@@ -90,7 +88,7 @@ async def probe_unkeyed_headers(
             header_tests.append(m)
 
     for hdrs in header_tests:
-        header_name = list(hdrs.keys())[0]
+        header_name = next(iter(hdrs.keys()))
         tasks.append(_probe_single_header(url, engine, header_name, hdrs[header_name], baseline_status_code, session_manager))
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -178,10 +176,10 @@ async def _probe_single_header(url, engine, header, poison_value, baseline_statu
 async def deliver_poisoned_payload(
     url: str,
     engine: AsyncNetworkEngine,
-    poisoned_headers: List[str],
+    poisoned_headers: list[str],
     payload: str = "",
     session_manager=None,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Deliver malicious payload via poisoned headers + verify cache persistence.
     First request: inject poisoned header value.
@@ -208,7 +206,7 @@ async def deliver_poisoned_payload(
                 "type": "cache_poison_delivered",
                 "title": f"Poison Payload Delivered via {header}",
                 "url": url[:200],
-                "detail": f"Payload reflected in cached response — cache poisoned for others",
+                "detail": "Payload reflected in cached response — cache poisoned for others",
                 "confidence": "confirmed",
             })
         # Fallback: marker reflected in first request (at minimum, header is unkeyed)

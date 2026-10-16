@@ -15,11 +15,10 @@ Usage:
 """
 
 import os
-import sys
-import subprocess
 import platform
+import subprocess
+import sys
 from pathlib import Path
-
 
 # Firefox about:config hardening values
 FIREFOX_HARDENING = {
@@ -58,7 +57,6 @@ FIREFOX_HARDENING = {
     "browser.aboutHomeSnippets.updateUrl": "",
 
     # === Canvas Fingerprint Protection ===
-    "privacy.resistFingerprinting": True,            # Spoofs canvas, timezone, etc.
 
     # === HSTS Tracking Prevention ===
     "security.OCSP.enabled": 0,                      # No OCSP (can leak)
@@ -191,13 +189,13 @@ def check_firefox_leaks() -> dict:
     return results
 
 
-def launch_firefox(profile_name: str = "verdamt-hardened", url: str = None):
+def launch_firefox(profile_name: str = "verdamt-hardened", url: str | None = None):
     """Launch Firefox with hardened profile."""
     profile_dir = get_profile_dir() / profile_name
     
     if not profile_dir.exists():
         print(f"[!] Profile not found: {profile_dir}")
-        print(f"[*] Run: python3 -m core.browser_harden")
+        print("[*] Run: python3 -m core.browser_harden")
         return
 
     cmd = ["firefox", "-P", profile_name, "--no-remote"]
@@ -247,9 +245,9 @@ if __name__ == "__main__":
         launch_firefox()
     else:
         profile_dir = generate_profile()
-        print(f"\n[*] To use this profile:")
-        print(f"    firefox -P verdamt-hardened --no-remote")
-        print(f"\n[*] Or launch automatically:")
-        print(f"    python3 -m core.browser_harden --launch")
-        print(f"\n[*] To check existing Firefox:")
-        print(f"    python3 -m core.browser_harden --check")
+        print("\n[*] To use this profile:")
+        print("    firefox -P verdamt-hardened --no-remote")
+        print("\n[*] Or launch automatically:")
+        print("    python3 -m core.browser_harden --launch")
+        print("\n[*] To check existing Firefox:")
+        print("    python3 -m core.browser_harden --check")

@@ -1,10 +1,9 @@
-from typing import List, Dict, Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 from core.playwright_compat import PLAYWRIGHT_AVAILABLE
-
 from core.state import SessionManager
-from core.ui import ph, i, s, w, N, W, C, GY
+from core.ui import GY, C, N, W, i, ph, s, w
 
 
 class CSRFVerifier:
@@ -14,14 +13,14 @@ class CSRFVerifier:
     from an isolated cross-origin context using active session cookies.
     """
 
-    def __init__(self, target_url: str, session_manager: SessionManager, forms: Optional[List[Dict]] = None):
+    def __init__(self, target_url: str, session_manager: SessionManager, forms: list[dict] | None = None):
         self.target_url = target_url
         self.domain = urlparse(target_url).netloc
         self.session_manager = session_manager
         self.forms = forms or []
-        self.findings: List[Dict[str, Any]] = []
+        self.findings: list[dict[str, Any]] = []
 
-    async def run(self) -> List[Dict[str, Any]]:
+    async def run(self) -> list[dict[str, Any]]:
         if not PLAYWRIGHT_AVAILABLE:
             w("Playwright not installed. Skipping CSRF live browser verification.")
             return []

@@ -1,4 +1,4 @@
 # Re-export for backward compatibility
-from .scanner import VulnVerifier, AsyncVulnEngine, HeuristicVulnEngine
+from .scanner import AsyncVulnEngine, HeuristicVulnEngine, VulnVerifier
 
-__all__ = ["VulnVerifier", "AsyncVulnEngine", "HeuristicVulnEngine"]
+__all__ = ["AsyncVulnEngine", "HeuristicVulnEngine", "VulnVerifier"]

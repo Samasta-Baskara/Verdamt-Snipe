@@ -1,6 +1,5 @@
 from urllib.parse import urljoin, urlparse, urlunparse
 
-
 STATIC_EXTENSIONS = (
     ".jpg", ".jpeg", ".png", ".gif", ".svg", ".ico", ".css", ".woff", ".woff2",
     ".ttf", ".otf", ".eot", ".mp4", ".webm", ".avi", ".zip", ".tar", ".gz",
@@ -26,7 +25,7 @@ class ScopeGuard:
             return True
         return self.include_subdomains and host.endswith(f".{self.root_host}")
 
-    def canonical_url(self, raw_url: str, base_url: str = None) -> str:
+    def canonical_url(self, raw_url: str, base_url: str | None = None) -> str:
         if not raw_url:
             return ""
 
@@ -45,10 +44,9 @@ class ScopeGuard:
             return ""
 
         netloc = self._clean_host(parsed.hostname)
-        if parsed.port:
-            if not ((parsed.scheme.lower() == "https" and parsed.port == 443) or 
-                    (parsed.scheme.lower() == "http" and parsed.port == 80)):
-                netloc = f"{netloc}:{parsed.port}"
+        if parsed.port and not ((parsed.scheme.lower() == "https" and parsed.port == 443) or 
+                (parsed.scheme.lower() == "http" and parsed.port == 80)):
+            netloc = f"{netloc}:{parsed.port}"
 
         path = parsed.path or "/"
         if path == "/":
@@ -63,7 +61,7 @@ class ScopeGuard:
             "",
         ))
 
-    def filter_urls(self, urls, base_url: str = None, keep_static: bool = True):
+    def filter_urls(self, urls, base_url: str | None = None, keep_static: bool = True):
         kept = set()
         for raw_url in urls or []:
             url = self.canonical_url(raw_url, base_url=base_url)

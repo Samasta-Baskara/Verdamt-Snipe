@@ -1,6 +1,6 @@
 # Re-export for backward compatibility
-from .scanner import HTTPProber, SubdomainFinder, ParamExtractor, WaybackCollector
 from .dorking import GoogleDorker
 from .jsscanner import JSScanner
+from .scanner import HTTPProber, ParamExtractor, SubdomainFinder, WaybackCollector
 
-__all__ = ["HTTPProber", "SubdomainFinder", "ParamExtractor", "WaybackCollector", "GoogleDorker", "JSScanner"]
+__all__ = ["GoogleDorker", "HTTPProber", "JSScanner", "ParamExtractor", "SubdomainFinder", "WaybackCollector"]

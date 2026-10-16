@@ -13,8 +13,8 @@ the original 131 tests caught:
 Also: ScanPolicy budget denial used to be silent (status=0 read as
 "no response" downstream) -> one-shot loud warning, asserted here.
 """
-import asyncio
 import ast
+import asyncio
 import io
 import pathlib
 import re
@@ -254,7 +254,7 @@ class TestShortFlagAliases(unittest.TestCase):
 
     def test_resume_short_flag_with_value_skips_target(self):
         from verd import parse_scan_args
-        target, flags, resume = parse_scan_args(
+        target, _flags, resume = parse_scan_args(
             ["verd.py", "-r", "outputs/example.com.state"])
         self.assertIsNone(target)
         self.assertEqual(resume, "outputs/example.com.state")
@@ -311,17 +311,17 @@ class TestOriginKeylessStatus(unittest.IsolatedAsyncioTestCase):
     async def test_censys_non_200_raises(self):
         from unittest.mock import AsyncMock, patch
         with patch.object(self.oh, "_curl", new=AsyncMock(return_value={
-                "status": 401, "body": "", "headers": {}, "size": 0, "time": 0})):
-            with self.assertRaises(RuntimeError) as ctx:
-                await self.oh._method_censys("example.com")
+                "status": 401, "body": "", "headers": {}, "size": 0, "time": 0})), \
+             self.assertRaises(RuntimeError) as ctx:
+            await self.oh._method_censys("example.com")
         self.assertIn("401", str(ctx.exception))
 
     async def test_fofa_non_200_raises(self):
         from unittest.mock import AsyncMock, patch
         with patch.object(self.oh, "_curl", new=AsyncMock(return_value={
-                "status": 403, "body": "", "headers": {}, "size": 0, "time": 0})):
-            with self.assertRaises(RuntimeError) as ctx:
-                await self.oh._method_fofa("example.com")
+                "status": 403, "body": "", "headers": {}, "size": 0, "time": 0})), \
+             self.assertRaises(RuntimeError) as ctx:
+            await self.oh._method_fofa("example.com")
         self.assertIn("403", str(ctx.exception))
 
 
@@ -332,6 +332,7 @@ class TestToolProcTracker(unittest.TestCase):
     def test_kill_active_procs_terminates(self):
         import subprocess
         import time
+
         from core.external_tools import _ACTIVE_PROCS, kill_active_procs
         p = subprocess.Popen(["sleep", "30"])
         _ACTIVE_PROCS.add(p)
@@ -350,18 +351,20 @@ class TestToolProcTracker(unittest.TestCase):
 
     def test_run_tool_happy_path_unregisters(self):
         from unittest.mock import patch
+
         from core import external_tools as et
         with patch.object(et, "_find_tool", return_value="/bin/sh"):
-            rc, out, err = et._run_tool("fake", ["-c", "echo hi"], timeout=5)
+            rc, out, _err = et._run_tool("fake", ["-c", "echo hi"], timeout=5)
         self.assertEqual(rc, 0)
         self.assertEqual(out.strip(), "hi")
         self.assertEqual(len(et._ACTIVE_PROCS), 0)
 
     def test_run_tool_timeout_salvages_and_unregisters(self):
         from unittest.mock import patch
+
         from core import external_tools as et
         with patch.object(et, "_find_tool", return_value="/bin/sh"):
-            rc, out, err = et._run_tool("fake", ["-c", "sleep 30"], timeout=1)
+            rc, _out, err = et._run_tool("fake", ["-c", "sleep 30"], timeout=1)
         self.assertEqual(rc, -1)
         self.assertIn("timeout after 1s", err)
         self.assertEqual(len(et._ACTIVE_PROCS), 0,
@@ -377,7 +380,8 @@ class TestMode7Deadline(unittest.IsolatedAsyncioTestCase):
 
     async def test_nuclei_mode_cancellable_by_wait_for(self):
         import time
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from core.state import SessionManager
         from verd import _execute_mode
 

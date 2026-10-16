@@ -23,7 +23,7 @@ class TestOriginServicesNotMutated(unittest.IsolatedAsyncioTestCase):
              patch("runners.vuln_assault.run_nuclei",
                    return_value=[]) as nuclei_mock, \
              patch("runners.vuln_assault.run_dalfox", return_value=[]):
-            findings, _ = await run_vuln_assault(
+            _findings, _ = await run_vuln_assault(
                 "target.go.id", services, [], {}, None, None, None,
                 vuln_threads=5, module_flags=None, policy=None,
             )

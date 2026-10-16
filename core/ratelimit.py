@@ -1,7 +1,7 @@
+import asyncio
 import random
 import threading
 import time
-import asyncio
 from collections import defaultdict, deque
 
 

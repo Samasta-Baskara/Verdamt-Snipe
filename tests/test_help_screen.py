@@ -15,8 +15,7 @@ import unittest
 from rich.console import Console
 
 from core.ui import menu
-from core.ui.banner import (_HELP_GROUPS, _HELP_LAUNCHER, _HELP_USAGE,
-                            _MODES, mode_flag, print_banner)
+from core.ui.banner import _HELP_GROUPS, _HELP_LAUNCHER, _HELP_USAGE, _MODES, mode_flag, print_banner
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The flag grammar spans two modules since the Tahap 3 split: parsing in

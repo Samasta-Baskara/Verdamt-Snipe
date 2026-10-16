@@ -1,9 +1,8 @@
-from typing import List, Dict, Any
+from typing import Any
 from urllib.parse import urlparse
 
 from core.playwright_compat import PLAYWRIGHT_AVAILABLE
-
-from core.ui import ph, s, w, N, C
+from core.ui import C, N, ph, s, w
 
 
 class CORSVerifier:
@@ -16,9 +15,9 @@ class CORSVerifier:
     def __init__(self, target_url: str):
         self.target_url = target_url
         self.domain = urlparse(target_url).netloc
-        self.findings: List[Dict[str, Any]] = []
+        self.findings: list[dict[str, Any]] = []
 
-    async def run(self) -> List[Dict[str, Any]]:
+    async def run(self) -> list[dict[str, Any]]:
         if not PLAYWRIGHT_AVAILABLE:
             w("Playwright not installed. Skipping CORS live verifier.")
             return []

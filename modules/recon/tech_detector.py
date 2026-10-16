@@ -1,5 +1,4 @@
 import re
-from typing import Dict, List, Set
 
 
 class TechStackDetector:
@@ -49,9 +48,9 @@ class TechStackDetector:
     ]
 
     @classmethod
-    def detect_from_service(cls, service: Dict) -> List[str]:
+    def detect_from_service(cls, service: dict) -> list[str]:
         """Detect tech stack from a single service dict (headers, body, cookies)."""
-        detected: Set[str] = set()
+        detected: set[str] = set()
 
         headers = service.get("headers", {}) or {}
         # Normalize header keys to lowercase
@@ -61,29 +60,29 @@ class TechStackDetector:
         for header_name, pattern, tech_name, _ in cls.HEADER_FINGERPRINTS:
             if header_name in headers_lower:
                 val = headers_lower[header_name]
-                if re.search(pattern, val, re.I):
+                if re.search(pattern, val, re.IGNORECASE):
                     detected.add(tech_name)
 
         # 2. Cookie fingerprinting
         cookies_header = headers_lower.get("set-cookie", "")
         for cookie_pat, tech_name, _ in cls.COOKIE_FINGERPRINTS:
-            if re.search(cookie_pat, cookies_header, re.I):
+            if re.search(cookie_pat, cookies_header, re.IGNORECASE):
                 detected.add(tech_name)
 
         # 3. HTML Body fingerprinting
         body = service.get("body", "") or ""
         if body:
             for pattern, tech_name, _ in cls.BODY_FINGERPRINTS:
-                if re.search(pattern, body, re.I):
+                if re.search(pattern, body, re.IGNORECASE):
                     detected.add(tech_name)
 
-        return sorted(list(detected))
+        return sorted(detected)
 
     @classmethod
-    def detect_from_services(cls, services: List[Dict]) -> List[str]:
+    def detect_from_services(cls, services: list[dict]) -> list[str]:
         """Detect combined tech stack across all probed services."""
-        combined: Set[str] = set()
+        combined: set[str] = set()
         for svc in services:
             techs = cls.detect_from_service(svc)
             combined.update(techs)
-        return sorted(list(combined))
+        return sorted(combined)

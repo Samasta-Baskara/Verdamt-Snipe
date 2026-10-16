@@ -1,5 +1,5 @@
 import threading
-from typing import Dict, Any
+from typing import Any
 from urllib.parse import urlparse
 
 # Multi-part public suffixes for the eTLD+1 sibling heuristic in
@@ -27,9 +27,9 @@ class SessionManager:
     """
     def __init__(self):
         self._lock = threading.Lock()
-        self.auth_tokens: Dict[str, str] = {}  # domain -> bearer token
-        self.cookies: Dict[str, Dict[str, str]] = {} # domain -> cookie dict
-        self.local_storage: Dict[str, Dict[str, Any]] = {}
+        self.auth_tokens: dict[str, str] = {}  # domain -> bearer token
+        self.cookies: dict[str, dict[str, str]] = {} # domain -> cookie dict
+        self.local_storage: dict[str, dict[str, Any]] = {}
         
     def register_token(self, domain: str, token_type: str, token_value: str):
         """Register an extracted token (e.g., from Playwright's network interceptor)."""
@@ -40,7 +40,7 @@ class SessionManager:
             elif token_type.lower() == "basic":
                 self.auth_tokens[clean_domain] = f"Basic {token_value}"
 
-    def update_cookies(self, domain: str, new_cookies: Dict[str, str]):
+    def update_cookies(self, domain: str, new_cookies: dict[str, str]):
         clean_domain = domain.strip().lower()
         with self._lock:
             if clean_domain not in self.cookies:
@@ -84,9 +84,8 @@ class SessionManager:
             cookie_dict = _match(self.cookies)
 
         # Inject Bearer/Auth Token
-        if auth_token:
-            if "Authorization" not in headers:
-                headers["Authorization"] = auth_token
+        if auth_token and "Authorization" not in headers:
+            headers["Authorization"] = auth_token
 
         # Inject Cookies
         if cookie_dict:
@@ -96,7 +95,7 @@ class SessionManager:
             else:
                 headers["Cookie"] = cookie_str
 
-    def auth_headers_for(self, domain: str) -> Dict[str, str]:
+    def auth_headers_for(self, domain: str) -> dict[str, str]:
         """Authorization + Cookie headers best matching domain.
 
         Lookup order: exact key -> suffix match (either direction) -> eTLD+1

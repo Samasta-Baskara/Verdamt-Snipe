@@ -1,23 +1,44 @@
 """menu — verbatim split from ui.py (no logic changes)."""
 import os
-import sys
 import re
-from rich.panel import Panel
-from rich.text import Text
-from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+import sys
+
+from rich import box
 from rich.align import Align
 from rich.columns import Columns
-from rich import box
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.text import Text
 
-from .banner import (_MODES, _HELP_USAGE, _HELP_GROUPS,
-                     _HELP_LAUNCHER, _HELP_EXAMPLES, mode_flag)
-from .styles import (C, G, GY, N, R, W, _ARROW_R, _CHECK, _CROSS, _DIAMOND,
-                     _INFO, _RARROW, _SKULL, _TARGET, _WARN, _get_term_width,
-                     console, strip_ansi, D_GOLD_SOFT, D_GOLD, D_EMERALD,
-                     D_TEAL, D_INFO, D_DIM, D_BORDER)
+from .banner import _HELP_EXAMPLES, _HELP_GROUPS, _HELP_LAUNCHER, _HELP_USAGE, _MODES, mode_flag
+from .styles import (
+    _ARROW_R,
+    _CHECK,
+    _CROSS,
+    _DIAMOND,
+    _INFO,
+    _RARROW,
+    _SKULL,
+    _TARGET,
+    _WARN,
+    D_BORDER,
+    D_DIM,
+    D_EMERALD,
+    D_GOLD,
+    D_GOLD_SOFT,
+    D_INFO,
+    D_TEAL,
+    GY,
+    C,
+    G,
+    N,
+    R,
+    W,
+    _get_term_width,
+    console,
+    strip_ansi,
+)
 from .tables import ScanDashboard, draw_box
-
-
 
 # BANNER
 

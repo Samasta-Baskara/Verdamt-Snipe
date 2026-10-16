@@ -1,11 +1,11 @@
 import asyncio
-from typing import Dict, Set, Any
+from typing import Any
 from urllib.parse import urlparse
 
 from core.playwright_compat import PLAYWRIGHT_AVAILABLE, Request
-
 from core.state import SessionManager
-from core.ui import ph, i, p, s, w, G, Y, N, W, C
+from core.ui import C, G, N, W, Y, i, p, ph, s, w
+
 
 class BrowserRecon:
     """
@@ -19,8 +19,8 @@ class BrowserRecon:
         self.session_manager = session_manager
         self.timeout = timeout
         
-        self.discovered_endpoints: Set[str] = set()
-        self.intercepted_tokens: Set[str] = set()
+        self.discovered_endpoints: set[str] = set()
+        self.intercepted_tokens: set[str] = set()
 
     async def _handle_request(self, request: Request):
         """Intercept outbound requests to find API endpoints and Auth tokens."""
@@ -38,7 +38,7 @@ class BrowserRecon:
                     self.session_manager.register_token(self.domain, "bearer", token)
                     s(f"Captured Bearer Token via XHR: {C}{token[:15]}...{N}")
 
-    async def run(self) -> Dict[str, Any]:
+    async def run(self) -> dict[str, Any]:
         """Execute the headless browser reconnaissance."""
         if not PLAYWRIGHT_AVAILABLE:
             w("Playwright is not installed. Skipping browser-assisted recon.")

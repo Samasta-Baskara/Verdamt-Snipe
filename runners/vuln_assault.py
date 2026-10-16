@@ -1,9 +1,10 @@
 import asyncio
 from urllib.parse import urlparse, urlunparse
-from modules.auth.bypass import WAFBypass
+
 from core.external_tools import run_dalfox, run_nuclei
 from core.proxy_manager import get_global_proxy_manager
 from core.ui import B, C, N, R, Spinner, W, Y, i, ph, s, w
+from modules.auth.bypass import WAFBypass
 from modules.extras.oob_detector import OOBDetector
 from modules.recon import ParamExtractor
 from modules.scanners import AsyncVulnEngine, HeuristicVulnEngine
@@ -43,7 +44,7 @@ async def run_vuln_assault(
     async_engine,
     vuln_threads: int = 25,
     is_turbo: bool = False,
-    module_flags: dict = None,
+    module_flags: dict | None = None,
     policy=None,
     allow_post: bool = False,
 ):
@@ -78,7 +79,7 @@ async def run_vuln_assault(
                 ParamExtractor(scan_urls).run(),
                 timeout=PRE_GATHER_TIMEOUTS["param_extractor"],
             ) or {}
-        except asyncio.TimeoutError:
+        except TimeoutError:
             w(f"param extraction timed out after "
               f"{PRE_GATHER_TIMEOUTS['param_extractor']}s — continuing without mined params")
             mined = {}
@@ -111,7 +112,7 @@ async def run_vuln_assault(
                 ),
                 timeout=PRE_GATHER_TIMEOUTS["waf_risk"],
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             w(f"WAF risk assessment timed out after "
               f"{PRE_GATHER_TIMEOUTS['waf_risk']}s — skipping verdict")
         except Exception as e:
@@ -295,7 +296,7 @@ async def run_vuln_assault(
             limit = MODULE_TIMEOUTS["oob"] - 10
             try:
                 return await asyncio.wait_for(oob_detector.run(), timeout=limit)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 salvaged = [f for f in oob_detector.findings if isinstance(f, dict)]
                 w(f"oob detector timed out after {limit}s — salvaged {len(salvaged)} finding(s)")
                 return salvaged
@@ -305,9 +306,9 @@ async def run_vuln_assault(
     primary_url = services[0]["url"] if services else f"https://{target}/"
 
     from modules.web.api_auth.jwt_hunter import scan_jwt
-    from modules.web.server_side.host_header import scan_host_header
-    from modules.web.server_side.crlf import scan_crlf
     from modules.web.client_side.stored_xss import StoredXSSHunter
+    from modules.web.server_side.crlf import scan_crlf
+    from modules.web.server_side.host_header import scan_host_header
     from modules.web.server_side.idor import scan_idor
 
     async def _run_jwt():
@@ -361,7 +362,7 @@ async def run_vuln_assault(
         limit = MODULE_TIMEOUTS[name]
         try:
             return await asyncio.wait_for(coro, timeout=limit)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             w(f"module {name} timed out after {limit}s — results discarded")
             return []
 

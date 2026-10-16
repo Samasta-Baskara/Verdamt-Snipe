@@ -4,10 +4,9 @@ Scans HTTP response bodies asynchronously at transport level to detect leaked cr
 cloud API keys, private keys, and high-entropy secrets without extra requests.
 """
 
-import re
 import math
-from typing import List, Dict, Any, Set
-
+import re
+from typing import Any
 
 KNOWN_SECRET_PATTERNS = [
     (r'AKIA[0-9A-Z]{16}', "AWS Access Key ID", "Critical"),
@@ -44,17 +43,17 @@ class SecretScanner:
     """Passive response body secret scanner."""
 
     _compiled_patterns = [
-        (re.compile(pattern, re.I if "BEGIN" in name or "aws" in pattern.lower() else 0), name, severity)
+        (re.compile(pattern, re.IGNORECASE if "BEGIN" in name or "aws" in pattern.lower() else 0), name, severity)
         for pattern, name, severity in KNOWN_SECRET_PATTERNS
     ]
 
     @classmethod
-    def scan_response(cls, url: str, body: str) -> List[Dict[str, Any]]:
+    def scan_response(cls, url: str, body: str) -> list[dict[str, Any]]:
         if not body or len(body) < 10:
             return []
 
-        findings: List[Dict[str, Any]] = []
-        seen: Set[str] = set()
+        findings: list[dict[str, Any]] = []
+        seen: set[str] = set()
 
         # 1. Regex Pattern Matching
         for regex, name, severity in cls._compiled_patterns:

@@ -6,20 +6,19 @@ renderer reads core.ui.styles.console late so tests can redirect it.
 """
 
 import io
-import time
-import re
 import math
-from typing import Dict, List, Optional, Tuple
+import re
+import time
 
 from rich.cells import cell_len
 from rich.text import Text
 
-from ..styles import (D_PANEL, D_ELEV, D_EMERALD, D_GOLD, D_TEXT, D_DIM, D_INFO, D_WARN, D_CRIT, D_BORDER)
-from .text import (_blank, _clip_cells, _fit, _wrap, _LOGO_ROWS, LOGO_W)
+from ..styles import D_BORDER, D_CRIT, D_DIM, D_ELEV, D_EMERALD, D_GOLD, D_INFO, D_PANEL, D_TEXT, D_WARN
+from .text import _LOGO_ROWS, LOGO_W, _blank, _clip_cells, _fit, _wrap
 
 
-def _logo_rows(rows: int = 3, background: str = D_PANEL) -> List[Text]:
-    out: List[Text] = []
+def _logo_rows(rows: int = 3, background: str = D_PANEL) -> list[Text]:
+    out: list[Text] = []
     for spec in _LOGO_ROWS[:max(0, rows)]:
         t = Text(no_wrap=True, end="")
         cells = {idx: (ch, col) for idx, ch, col in spec}
@@ -34,7 +33,7 @@ def _logo_rows(rows: int = 3, background: str = D_PANEL) -> List[Text]:
 # Recent Activity feed
 # ─────────────────────────────────────────────────────────────────────────────
 
-_LEVELS: Dict[str, Dict[str, str]] = {
+_LEVELS: dict[str, dict[str, str]] = {
     "info": {"label": "[INFO]", "fg": D_INFO, "ind": "▶", "ind_fg": D_EMERALD, "body": D_INFO},
     "ok":   {"label": "[ OK ]", "fg": D_EMERALD, "ind": "●", "ind_fg": D_EMERALD, "body": D_TEXT},
     "mile": {"label": "[FIND]", "fg": D_GOLD, "ind": "◆", "ind_fg": D_GOLD, "body": D_TEXT},
@@ -73,7 +72,7 @@ def _styled_message(msg: str, base: str, background: str = D_PANEL) -> Text:
     return out
 
 
-def _event_lines(ev: Tuple, total_w: int, background: str = D_PANEL) -> List[Text]:
+def _event_lines(ev: tuple, total_w: int, background: str = D_PANEL) -> list[Text]:
     """Render one activity event into one or more exactly-fitted lines."""
     text = ev[0]
     ts = ev[2]
@@ -90,7 +89,7 @@ def _event_lines(ev: Tuple, total_w: int, background: str = D_PANEL) -> List[Tex
     msg_w = max(8, total_w - head_w)
     body_lines = _wrap(_styled_message(text, meta["body"], background), msg_w)
 
-    out: List[Text] = []
+    out: list[Text] = []
     for i, piece in enumerate(body_lines):
         row = Text(no_wrap=True, end="")
         if i == 0:
@@ -115,9 +114,9 @@ _STAGE_BADGE = {
 }
 
 
-def _stage_rows(stages: List[Dict[str, str]], width: int, background: str,
+def _stage_rows(stages: list[dict[str, str]], width: int, background: str,
                 now: float, active_detail: str, spacing: int = 0,
-                start_index: int = 0) -> List[Text]:
+                start_index: int = 0) -> list[Text]:
     if not stages or width < 24:
         return []
     badge_w = max(cell_len(v[0]) for v in
@@ -136,7 +135,7 @@ def _stage_rows(stages: List[Dict[str, str]], width: int, background: str,
         name_w = max(6, width - 4 - 2 - badge_w - 2)
         counter_w = 0
 
-    rows: List[Text] = []
+    rows: list[Text] = []
     for idx, stage in enumerate(stages, start=start_index + 1):
         status = stage.get("status", "pending")
         name = stage.get("name", "")
@@ -185,7 +184,7 @@ def _stage_rows(stages: List[Dict[str, str]], width: int, background: str,
             pct_match = re.search(r"(\d+(?:\.\d+)?)\s*%", detail)
             if pct_match:
                 frac = max(0.0, min(1.0, float(pct_match.group(1)) / 100.0))
-                filled = int(round(bar_w * frac))
+                filled = round(bar_w * frac)
                 bar.append("━" * filled, f"{D_GOLD} on {background}")
                 bar.append("─" * (bar_w - filled), f"{D_BORDER} on {background}")
             else:
@@ -214,8 +213,8 @@ GAUGE_W = 17
 GAUGE_H = 6
 
 
-def _gauge(value: str, label: str, caption_parts: List[Tuple[str, str]],
-           fraction: float, colour: str, background: str = D_PANEL) -> List[Text]:
+def _gauge(value: str, label: str, caption_parts: list[tuple[str, str]],
+           fraction: float, colour: str, background: str = D_PANEL) -> list[Text]:
     """Compact semicircular gauge on a fixed 17x6 grid.
 
     row 0        metric label
@@ -228,12 +227,12 @@ def _gauge(value: str, label: str, caption_parts: List[Tuple[str, str]],
     if not math.isfinite(fraction):
         fraction = 0.0
     fraction = max(0.0, min(1.0, fraction))
-    grid: List[List[Tuple[str, Optional[str]]]] = [
+    grid: list[list[tuple[str, str | None]]] = [
         [(" ", None) for _ in range(GAUGE_W)] for _ in range(GAUGE_H)
     ]
 
     cx, cy, rx, ry = 8.4, 4.6, 8.3, 3.2
-    cells: List[Tuple[int, int]] = []
+    cells: list[tuple[int, int]] = []
     seen = set()
     step = 0.25
     i = 0
@@ -249,7 +248,7 @@ def _gauge(value: str, label: str, caption_parts: List[Tuple[str, str]],
                 cells.append((r, c))
         i += 1
 
-    filled = int(round(fraction * len(cells)))
+    filled = round(fraction * len(cells))
     for n, (row, col) in enumerate(cells):
         grid[row][col] = ("█", colour if n < filled else D_BORDER)
 
@@ -260,7 +259,7 @@ def _gauge(value: str, label: str, caption_parts: List[Tuple[str, str]],
             if 0 <= pos < GAUGE_W:
                 grid[row][pos] = (ch, style)
 
-    def _overlay_parts(row: int, parts: List[Tuple[str, str]]):
+    def _overlay_parts(row: int, parts: list[tuple[str, str]]):
         pos = (GAUGE_W - sum(cell_len(t) for t, _ in parts)) // 2
         for text, style in parts:
             for j, ch in enumerate(text):
@@ -273,7 +272,7 @@ def _gauge(value: str, label: str, caption_parts: List[Tuple[str, str]],
     _overlay(3, value, D_TEXT)
     _overlay_parts(GAUGE_H - 1, caption_parts or [(" ", D_DIM)])
 
-    rows: List[Text] = []
+    rows: list[Text] = []
     for row in grid:
         t = Text(no_wrap=True, end="")
         for ch, style in row:
@@ -285,7 +284,7 @@ def _gauge(value: str, label: str, caption_parts: List[Tuple[str, str]],
 _SPARK_BLOCKS = ("▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")
 
 
-def _sparkline(values: List[float], buckets: int = 9) -> str:
+def _sparkline(values: list[float], buckets: int = 9) -> str:
     """Down-sample `values` into `buckets` averages and map them to blocks.
 
     Returns "" when there is no traffic yet, so the caption never shows a
@@ -318,7 +317,7 @@ _SEV_ORDER = (
 
 
 def _findings_line(width: int, background: str, findings: int,
-                   sev: Dict[str, int]) -> Optional[Text]:
+                   sev: dict[str, int]) -> Text | None:
     """One-line findings summary, or None when there is nothing to report.
 
     Only non-zero severities are rendered, and the line degrades to
@@ -358,7 +357,7 @@ def _bar_meter(label: str, value: str, fraction: float, colour: str,
     label_w = min(16, max(cell_len(label) + 1, 12))
     value_w = cell_len(value) + 1
     track_w = max(6, width - label_w - value_w - 3)
-    filled = int(round(track_w * fraction))
+    filled = round(track_w * fraction)
     t = Text(no_wrap=True, end="")
     t.append(label.ljust(label_w), f"{D_DIM} on {background}")
     t.append("[", f"{D_BORDER} on {background}")
@@ -387,7 +386,7 @@ class _FeedProxy(io.TextIOBase):
     def __init__(self, wrapped, emit):
         self._wrapped = wrapped
         self._emit = emit
-        self._buf: List[str] = []
+        self._buf: list[str] = []
         self.rich_proxied_file = wrapped
 
     # ── TextIO surface ────────────────────────────────────────────────────

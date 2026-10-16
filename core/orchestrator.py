@@ -11,26 +11,47 @@ import sys
 import time
 
 from core import cli_parser as _cli
-from core.cli_parser import (
-    VERSION, AUTHOR,
-    parse_scan_args, parse_target, parse_cli_headers, parse_mode,
-    _flag_value, parse_scan_policy_options, seed_session_headers,
-)
-from core.ui import (
-    print_banner, ph, i, w, s, G, R, C, W, N, GY,
-    draw_interactive_menu, draw_help_screen, draw_confirm_bar,
-    _MODES, _IMPERSONATE_OPTS, console, ScanDashboard,
-)
-from core.http_client import GhostMode
-from core.ratelimit import get_global_rate_limiter
-from core.policy import ScanPolicy
-from core.state import SessionManager
-from core.client import AsyncNetworkEngine
-from core.project import ProjectState, sanitize_filename
-from core.modes import _execute_mode, phase_verify_report
-from runners.surface import run_surface_scan
 from core.camouflage import CamouflageBrowser
-from core.proxy_manager import setup_proxy, get_global_proxy_manager
+from core.cli_parser import (
+    AUTHOR,
+    VERSION,
+    _flag_value,
+    parse_cli_headers,
+    parse_mode,
+    parse_scan_args,
+    parse_scan_policy_options,
+    parse_target,
+    seed_session_headers,
+)
+from core.client import AsyncNetworkEngine
+from core.http_client import GhostMode
+from core.modes import _execute_mode, phase_verify_report
+from core.policy import ScanPolicy
+from core.project import ProjectState, sanitize_filename
+from core.proxy_manager import get_global_proxy_manager, setup_proxy
+from core.ratelimit import get_global_rate_limiter
+from core.state import SessionManager
+from core.ui import (
+    _IMPERSONATE_OPTS,
+    _MODES,
+    GY,
+    C,
+    G,
+    N,
+    R,
+    ScanDashboard,
+    W,
+    console,
+    draw_confirm_bar,
+    draw_help_screen,
+    draw_interactive_menu,
+    i,
+    ph,
+    print_banner,
+    s,
+    w,
+)
+from runners.surface import run_surface_scan
 
 
 def interactive_mode_select(target, settings):
@@ -448,7 +469,7 @@ async def async_main():
                         ),
                         timeout=max_time
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     w(f"Scan timed out after {max_time} seconds! Saving findings and proceeding to reporting...")
                     # Tracker A:521: cancellation never stops a thread already
                     # inside subprocess.run — terminate the tool processes or

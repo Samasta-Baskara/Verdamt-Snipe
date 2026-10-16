@@ -24,16 +24,16 @@ Usage:
     await session.close()
 """
 
-import time
 import random
+import time
 
 try:
-    from curl_cffi.requests import Session, AsyncSession
+    from curl_cffi.requests import AsyncSession, Session
     CURL_CFFI_AVAILABLE = True
 except Exception:
-    import traceback
-    import tempfile
     import os
+    import tempfile
+    import traceback
     try:
         log_path = os.path.join(tempfile.gettempdir(), "curl_cffi_debug.log")
         with open(log_path, "w") as f:
@@ -51,7 +51,7 @@ BROWSER_TARGETS = {
     "opera":    ["chrome"],  # Opera uses Chrome engine
 }
 
-def get_impersonate_target(browser: str = None) -> str:
+def get_impersonate_target(browser: str | None = None) -> str:
     """Get a specific or random impersonate target.
 
     Args:
@@ -74,12 +74,12 @@ class CurlCffiSession:
 
     def __init__(
         self,
-        impersonate: str = None,
-        browser: str = None,
+        impersonate: str | None = None,
+        browser: str | None = None,
         timeout: int = 30,
         verify: bool = False,
         follow_redirects: bool = True,
-        proxy: str = None,
+        proxy: str | None = None,
     ):
         if not CURL_CFFI_AVAILABLE:
             raise ImportError("curl_cffi not installed. Run: pip install curl_cffi")
@@ -98,10 +98,10 @@ class CurlCffiSession:
         self,
         method: str,
         url: str,
-        headers: dict = None,
+        headers: dict | None = None,
         data=None,
         json=None,
-        timeout: int = None,
+        timeout: int | None = None,
         **kwargs,
     ) -> dict:
         """Send request. Returns dict matching thttp format."""
@@ -156,12 +156,12 @@ class CurlCffiAsyncSession:
 
     def __init__(
         self,
-        impersonate: str = None,
-        browser: str = None,
+        impersonate: str | None = None,
+        browser: str | None = None,
         timeout: int = 30,
         verify: bool = False,
         follow_redirects: bool = True,
-        proxy: str = None,
+        proxy: str | None = None,
     ):
         if not CURL_CFFI_AVAILABLE:
             raise ImportError("curl_cffi not installed. Run: pip install curl_cffi")
@@ -180,10 +180,10 @@ class CurlCffiAsyncSession:
         self,
         method: str,
         url: str,
-        headers: dict = None,
+        headers: dict | None = None,
         data=None,
         json=None,
-        timeout: int = None,
+        timeout: int | None = None,
         **kwargs,
     ) -> dict:
         """Send async request. Returns dict matching ahttp_send format."""

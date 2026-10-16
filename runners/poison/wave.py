@@ -1,21 +1,7 @@
 """wave — verbatim split from poison.py (no logic changes)."""
-import asyncio
-import os
-import re
-import subprocess
-import tempfile
-import time
-from collections import deque
-from statistics import median
-from urllib.parse import urlparse, urlencode
-from typing import Dict, List, Optional, Set, Tuple
-from core.external_tools import _find_tool
-from core.ui import ph, i, w, s, p, G, C, B, N
-from core.proxy_manager import get_global_proxy_manager
-from modules.wordlists import WordlistProvider, PROVIDER
-from runners.shared import inject_query_payload
+from urllib.parse import urlparse
 
-
+from core.ui import w
 
 
 def _hold_for_backoff(state, what: str) -> bool:

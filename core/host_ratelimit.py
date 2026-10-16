@@ -80,7 +80,7 @@ class HostRateLimiter:
         try:
             await asyncio.wait_for(state.semaphore.acquire(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     def release(self, host: str, status: int = 0):
@@ -153,7 +153,7 @@ class HostRateLimiter:
 
     # Diagnostics
 
-    def stats(self, host: str = None) -> dict:
+    def stats(self, host: str | None = None) -> dict:
         """Get rate limit stats for a host or all hosts summary."""
         if host:
             s = self._hosts.get(host)

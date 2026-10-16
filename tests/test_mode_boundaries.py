@@ -85,8 +85,8 @@ class TestPhaseStageAlignment(unittest.TestCase):
         ScanDashboard._instance = None
 
     def _dash(self, mode):
-        from core.ui.tables import ScanDashboard
         from core.ui.banner import _PIPELINE_STAGES_BY_MODE
+        from core.ui.tables import ScanDashboard
         ScanDashboard._instance = None
         dash = ScanDashboard.get_instance()
         dash.pipeline = [dict(s) for s in _PIPELINE_STAGES_BY_MODE[mode]]

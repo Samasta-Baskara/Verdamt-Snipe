@@ -22,7 +22,7 @@ class TestModuleTimeouts(unittest.IsolatedAsyncioTestCase):
              patch("runners.vuln_assault.run_nuclei", return_value=[]), \
              patch("runners.vuln_assault.run_dalfox", return_value=[]):
             t0 = time.monotonic()
-            findings, wafs = await vuln_assault.run_vuln_assault(
+            findings, _wafs = await vuln_assault.run_vuln_assault(
                 "example.com", [], [], {}, None, None, None,
                 vuln_threads=5, module_flags=None, policy=None,
             )

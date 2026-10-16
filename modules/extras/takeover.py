@@ -1,9 +1,11 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
-from typing import List, Dict
-from core.ui import ph, i, p, draw_table, Spinner, Y, R, N, W, B
+
+from core.ui import B, N, R, Spinner, W, Y, draw_table, i, p, ph
+
 
 class TakeoverChecker:
     """Check for dangling CNAMEs and potential subdomain takeovers (async)."""
@@ -21,12 +23,12 @@ class TakeoverChecker:
         "myshopify.com": "Shopify"
     }
 
-    def __init__(self, subdomains: List[str], concurrency: int = 20):
+    def __init__(self, subdomains: list[str], concurrency: int = 20):
         self.subdomains = subdomains
         self.concurrency = concurrency
         self.findings = []
 
-    async def _check_cname(self, sub: str) -> Dict:
+    async def _check_cname(self, sub: str) -> dict:
         try:
             # 'host -t CNAME' is the portable way to resolve CNAME chains
             # without a dnspython dependency.
@@ -45,7 +47,7 @@ class TakeoverChecker:
             pass
         return None
 
-    async def run(self) -> List[Dict]:
+    async def run(self) -> list[dict]:
         ph("TAKEOVER ENGINE: Hunting Dangling CNAMEs")
         i(f"Checking {W}{len(self.subdomains)}{N} subdomains for takeover risks...")
         
@@ -53,7 +55,7 @@ class TakeoverChecker:
         spin = Spinner("Analyzing CNAME records...")
         sem = asyncio.Semaphore(self.concurrency)
 
-        async def _bounded(sub: str) -> Dict:
+        async def _bounded(sub: str) -> dict:
             async with sem:
                 spin.next()
                 return await self._check_cname(sub)

@@ -5,27 +5,41 @@ import re
 import subprocess
 import tempfile
 import time
-from collections import deque
-from statistics import median
-from urllib.parse import urlparse, urlencode
-from typing import Dict, List, Optional, Set, Tuple
+from urllib.parse import urlencode, urlparse
+
 from core.external_tools import _find_tool
-from core.ui import ph, i, w, s, p, G, C, B, N
-from core.proxy_manager import get_global_proxy_manager
-from modules.wordlists import WordlistProvider, PROVIDER
+from core.ui import B, G, N, i, p, w
+from modules.wordlists import PROVIDER
 from runners.shared import inject_query_payload
 
-from .state import COMMON_CREDS, FFUF_CALIBRATION_OVERHEAD, POST_FALLBACK_PARAMS, POST_MAX_PARAMS, POST_MAX_URLS, PoisonState, _LFI_MARKERS, _RCE_MARKERS, _SQL_ERRORS, _SSTI_EXPECTED, _XSS_TRIGGERS, _budget_ok, _classify_login_attempt, _cookie_names, _ffuf_timeout, _get_header, _get_proxy_flag, _loc_path
+from .state import (
+    _LFI_MARKERS,
+    _RCE_MARKERS,
+    _SQL_ERRORS,
+    _SSTI_EXPECTED,
+    _XSS_TRIGGERS,
+    COMMON_CREDS,
+    FFUF_CALIBRATION_OVERHEAD,
+    POST_FALLBACK_PARAMS,
+    POST_MAX_PARAMS,
+    POST_MAX_URLS,
+    PoisonState,
+    _budget_ok,
+    _classify_login_attempt,
+    _cookie_names,
+    _ffuf_timeout,
+    _get_header,
+    _get_proxy_flag,
+    _loc_path,
+)
 from .wave import _hold_for_backoff
-
-
 
 # Phase: Bruteforce
 
-async def _run_ffuf(base_url: str, wordlist: List[str], extension: str,
+async def _run_ffuf(base_url: str, wordlist: list[str], extension: str,
                     concurrency: int, timeout: int = 45, policy=None,
-                    match_codes: Optional[str] = None,
-                    filter_codes: str = "404,301,302") -> List[str]:
+                    match_codes: str | None = None,
+                    filter_codes: str = "404,301,302") -> list[str]:
     """Run ffuf, return discovered paths.
 
     ffuf never touches AsyncNetworkEngine, so the scan-policy gate has to live
@@ -55,10 +69,9 @@ async def _run_ffuf(base_url: str, wordlist: List[str], extension: str,
                              reason=f"ffuf:{urlparse(base_url).netloc}") <= 0:
                 return []
 
-    wl_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt")
-    for word in wordlist:
-        wl_file.write(word + "\n")
-    wl_file.close()
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as wl_file:
+        for word in wordlist:
+            wl_file.write(word + "\n")
 
     url_parts = urlparse(base_url)
     base = f"{url_parts.scheme}://{url_parts.netloc}"
@@ -82,7 +95,7 @@ async def _run_ffuf(base_url: str, wordlist: List[str], extension: str,
         )
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return []
@@ -165,7 +178,7 @@ _SENSITIVE_RULES = [
 ]
 
 _DIRLIST_MARKER = re.compile(
-    r"<title>\s*Index\s*of|<h1>\s*Index\s*of|Parent Directory</a>", re.I)
+    r"<title>\s*Index\s*of|<h1>\s*Index\s*of|Parent Directory</a>", re.IGNORECASE)
 
 
 async def verify_sensitive_files(state, urls: list) -> int:
@@ -190,7 +203,7 @@ async def verify_sensitive_files(state, urls: list) -> int:
         path = urlparse(u).path or "/"
         prio = len(_SENSITIVE_RULES) + 1
         for idx, rule in enumerate(_SENSITIVE_RULES):
-            if re.search(rule[0], path, re.I):
+            if re.search(rule[0], path, re.IGNORECASE):
                 prio = idx
                 break
         else:
@@ -260,10 +273,10 @@ async def verify_sensitive_files(state, urls: list) -> int:
 
         path = parsed.path
         for pregex, ftype, title, cmaker, conf in _SENSITIVE_RULES:
-            if not re.search(pregex, path, re.I):
+            if not re.search(pregex, path, re.IGNORECASE):
                 continue
             if cmaker:
-                m = re.search(cmaker, body, re.I)
+                m = re.search(cmaker, body, re.IGNORECASE)
                 if not m:
                     break
                 snippet = re.sub(r"\s+", " ", m.group(0))[:60]
@@ -313,7 +326,7 @@ async def verify_sensitive_files(state, urls: list) -> int:
 MAX_LOGIN_ATTEMPTS = 60        # lockout safety — raise deliberately if needed
 TOKEN_REFRESH_EVERY = 10       # re-fetch rotating CSRF/VIEWSTATE every N tries
 _LOGIN_USER_HINT = re.compile(
-    r"user|email|login|npwp|nama|account|identifier|nick|akun|member|admin", re.I)
+    r"user|email|login|npwp|nama|account|identifier|nick|akun|member|admin", re.IGNORECASE)
 
 # Legacy/Indo credential pairs on top of COMMON_CREDS; optional drop-in
 # file ~/.wordlists/creds.txt ("user:pass" per line) extends both.
@@ -334,20 +347,20 @@ _EXTRA_CREDS = [
     ("kantor", "kantor"), ("sekolah", "sekolah"), ("desa", "desa"),
 ]
 
-_CRED_CACHE: Optional[List[Tuple[str, str]]] = None
+_CRED_CACHE: list[tuple[str, str]] | None = None
 
 
-def _cred_list() -> List[Tuple[str, str]]:
+def _cred_list() -> list[tuple[str, str]]:
     """COMMON_CREDS + legacy/Indo pairs + optional ~/.wordlists/creds.txt."""
     global _CRED_CACHE
     if _CRED_CACHE is not None:
         return _CRED_CACHE
     seen = set()
     creds = []
-    for u, p in list(COMMON_CREDS) + _EXTRA_CREDS:
-        if (u, p) not in seen:
-            seen.add((u, p))
-            creds.append((u, p))
+    for user, pw in list(COMMON_CREDS) + _EXTRA_CREDS:
+        if (user, pw) not in seen:
+            seen.add((user, pw))
+            creds.append((user, pw))
     try:
         drop = os.path.expanduser("~/.wordlists/creds.txt")
         if os.path.exists(drop):
@@ -384,7 +397,7 @@ def _warn_missing_lxml() -> None:
     w("login-form brute DISABLED — lxml is not installed (pip install lxml)")
 
 
-async def _fetch_login_form(state, url: str) -> Optional[dict]:
+async def _fetch_login_form(state, url: str) -> dict | None:
     """Parse the real login form: user/pass fields, hidden inputs, action."""
     r = await state.async_engine.ahttp_send(
         url, timeout=8, state_context=state.session_manager)
@@ -448,7 +461,7 @@ async def _fetch_login_form(state, url: str) -> Optional[dict]:
 
 def _form_has_token(hidden: dict) -> bool:
     return any(re.search(r"csrf|token|viewstate|eventvalidation|nonce|authenticity",
-                         k, re.I) for k in hidden)
+                         k, re.IGNORECASE) for k in hidden)
 
 
 async def _brute_login_form(state, url: str) -> None:
@@ -547,7 +560,7 @@ _BACKUP_EXTS = [
 EXT_PASS_MAX = 24     # backup exts first + provider extras, bounded
 
 
-def _rot_slice(payloads: List[str], wave: int, n: int = 3) -> List[str]:
+def _rot_slice(payloads: list[str], wave: int, n: int = 3) -> list[str]:
     """Rotate the payload slice per wave: wave 1 keeps historical behavior
     (first n), later waves walk through the full generator list — the deep
     bypass variants finally get fired instead of sitting in dead code (PF3)."""
@@ -683,22 +696,22 @@ def _detect_from_response(resp: dict, ptype: str, payload: str,
 
     if ptype == "xss":
         for t in _XSS_TRIGGERS:
-            if re.search(t, body, re.I) and not re.search(t, baseline_body, re.I):
+            if re.search(t, body, re.IGNORECASE) and not re.search(t, baseline_body, re.IGNORECASE):
                 return {"type": "reflected_xss", "title": "Reflected XSS",
                         "detail": f"Trigger: {t}", "confidence": "suspected"}
     elif ptype == "sqli":
         for ep in _SQL_ERRORS:
-            if re.search(ep, body, re.I) and not re.search(ep, baseline_body, re.I):
+            if re.search(ep, body, re.IGNORECASE) and not re.search(ep, baseline_body, re.IGNORECASE):
                 return {"type": "sqli_error", "title": "SQL Injection (Error-based)",
                         "detail": f"Error: {ep}", "confidence": "suspected"}
     elif ptype == "lfi":
         for ind in _LFI_MARKERS:
-            if re.search(ind, body, re.I) and not re.search(ind, baseline_body, re.I):
+            if re.search(ind, body, re.IGNORECASE) and not re.search(ind, baseline_body, re.IGNORECASE):
                 return {"type": "lfi", "title": "Local File Inclusion",
                         "detail": f"Match: {ind}", "confidence": "suspected"}
     elif ptype == "rce":
         for ind in _RCE_MARKERS:
-            if re.search(ind, body, re.I) and not re.search(ind, baseline_body, re.I):
+            if re.search(ind, body, re.IGNORECASE) and not re.search(ind, baseline_body, re.IGNORECASE):
                 return {"type": "rce", "title": "RCE / Command Injection",
                         "detail": f"Match: {ind}", "confidence": "suspected"}
     elif ptype == "ssti":

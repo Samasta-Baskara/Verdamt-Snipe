@@ -3,10 +3,10 @@ from urllib.parse import urljoin
 
 from core.external_tools import run_gau, run_waybackurls
 from core.ui import Spinner, i, ph
+from modules.extras.takeover import TakeoverChecker
 from modules.recon.dorking import GoogleDorker
 from modules.recon.jsscanner import JSScanner
 from modules.scanners import AsyncVulnEngine
-from modules.extras.takeover import TakeoverChecker
 from runners.shared import (
     collect_js_assets,
     concrete_js_findings,
@@ -69,7 +69,7 @@ async def run_recon_intel(target: str, services, subs, base_urls, scope_guard,
                 GoogleDorker(target, engine=async_engine).run(),
                 timeout=35
             )
-        except (asyncio.TimeoutError, Exception):
+        except (TimeoutError, Exception):
             return {}
 
     async def _run_js_analysis(current_urls):

@@ -9,8 +9,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from modules.extras.takeover import TakeoverChecker
 from core.ratelimit import RateLimiter
+from modules.extras.takeover import TakeoverChecker
 
 
 def _fake_proc(output: bytes):
@@ -63,7 +63,6 @@ class TestTakeoverCheckerAsync(unittest.IsolatedAsyncioTestCase):
             in_flight["peak"] = max(in_flight["peak"], in_flight["now"])
             await asyncio.sleep(0.01)
             in_flight["now"] -= 1
-            return None
 
         with patch.object(checker, "_check_cname", slow_probe):
             results = await checker.run()

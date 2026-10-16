@@ -1,9 +1,9 @@
-from runners.recon_intel import run_recon_intel
-from runners.app_analysis import run_app_analysis
-from runners.vuln_assault import run_vuln_assault
-from runners.poison import run_poison_assault
-from runners.shared import run_katana_phase, run_waf_origin_phase
 from core.ui import ph, w
+from runners.app_analysis import run_app_analysis
+from runners.poison import run_poison_assault
+from runners.recon_intel import run_recon_intel
+from runners.shared import run_katana_phase, run_waf_origin_phase
+from runners.vuln_assault import run_vuln_assault
 
 
 async def run_full_assault(

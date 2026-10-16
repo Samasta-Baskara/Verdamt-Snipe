@@ -1,8 +1,7 @@
-from typing import List, Dict, Any
-from urllib.parse import urlparse, urljoin
+from typing import Any
+from urllib.parse import urljoin, urlparse
 
-from core.ui import ph, p, s, w, N, C
-
+from core.ui import C, N, p, ph, s, w
 
 GRAPHQL_COMMON_PATHS = [
     "/graphql",
@@ -51,9 +50,9 @@ class GraphQLProfiler:
         self.seed_url = seed_url
         self.domain = urlparse(seed_url).netloc
         self.async_engine = async_engine
-        self.findings: List[Dict[str, Any]] = []
+        self.findings: list[dict[str, Any]] = []
 
-    async def run(self) -> List[Dict[str, Any]]:
+    async def run(self) -> list[dict[str, Any]]:
         if not self.async_engine:
             return []
 
@@ -98,7 +97,7 @@ class GraphQLProfiler:
                     "type": "graphql_introspection",
                     "title": "GraphQL Introspection Enabled",
                     "url": active_graphql_url,
-                    "detail": f"GraphQL Introspection is enabled. Full API schema and field definitions can be dumped by unauthorized attackers.",
+                    "detail": "GraphQL Introspection is enabled. Full API schema and field definitions can be dumped by unauthorized attackers.",
                     "severity": "Medium",
                     "confidence": "confirmed",
                 })
@@ -119,7 +118,7 @@ class GraphQLProfiler:
                     "type": "graphql_batching",
                     "title": "GraphQL Batching Query DoS Supported",
                     "url": active_graphql_url,
-                    "detail": f"GraphQL server accepts array of queries in a single HTTP request without rate limiting (Batching DoS candidate).",
+                    "detail": "GraphQL server accepts array of queries in a single HTTP request without rate limiting (Batching DoS candidate).",
                     "severity": "Low",
                     "confidence": "confirmed",
                 })

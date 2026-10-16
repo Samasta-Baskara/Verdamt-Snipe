@@ -1,14 +1,13 @@
+import asyncio
 import os
 import re
 import sys
-import asyncio
 from difflib import SequenceMatcher
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from core.ui import C, G, N, R, W, draw_table, i, p, ph, s
-
 
 SENSITIVE_PATHS = [
     "/admin", "/api", "/users", "/config", "/.env", "/backup", "/wp-admin",
@@ -353,7 +352,7 @@ class AuthTester:
             probe = await self._request("GET", login_url)
             if not probe or probe.status_code not in (200, 401, 403):
                 continue
-            if probe.status_code == 200 and not re.search(r"login|username|password|email|sign in", probe.text, re.I):
+            if probe.status_code == 200 and not re.search(r"login|username|password|email|sign in", probe.text, re.IGNORECASE):
                 continue
 
             for username, password in DEFAULT_CREDS:

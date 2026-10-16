@@ -3,9 +3,10 @@ import os
 import shlex
 import tempfile
 import unittest
-from core.audit import AuditLogger, BODY_CAP, entry_to_curl
-from core.policy import ScanPolicy
+
+from core.audit import BODY_CAP, AuditLogger, entry_to_curl
 from core.http_client import http_send
+from core.policy import ScanPolicy
 
 
 class TestAuditAndDryRun(unittest.TestCase):
@@ -73,7 +74,7 @@ class TestAuditAndDryRun(unittest.TestCase):
         logger.log_request("https://t/x", "POST", allowed=True, body="A" * (BODY_CAP + 500))
         with open(self.audit_path, "r", encoding="utf-8") as f:
             entries = [json.loads(l) for l in f if l.strip()]
-        entry = [e for e in entries if e["type"] != "run_start"][0]
+        entry = next(e for e in entries if e["type"] != "run_start")
         self.assertEqual(len(entry["body"]), BODY_CAP)
         self.assertTrue(entry.get("body_truncated"))
 
@@ -95,7 +96,7 @@ class TestAuditAndDryRun(unittest.TestCase):
         with open(self.audit_path, "r", encoding="utf-8") as f:
             entries = [json.loads(l) for l in f if l.strip()]
         # configure() menulis type=run_start sebagai batas run — skip.
-        entry = [e for e in entries if e["type"] != "run_start"][0]
+        entry = next(e for e in entries if e["type"] != "run_start")
         self.assertEqual(entry["type"], "response")
         self.assertEqual(entry["status_code"], 403)
         self.assertEqual(entry["elapsed_ms"], 250.0)
@@ -126,7 +127,7 @@ class TestAuditAndDryRun(unittest.TestCase):
             "LFI", "High", "https://t/x", "test", evidence="E" * 10000)
         with open(self.audit_path, "r", encoding="utf-8") as f:
             entries = [json.loads(l) for l in f if l.strip()]
-        entry = [e for e in entries if e["type"] != "run_start"][0]
+        entry = next(e for e in entries if e["type"] != "run_start")
         self.assertEqual(entry["type"], "finding")
         self.assertEqual(len(entry["evidence"]), 4096)
 

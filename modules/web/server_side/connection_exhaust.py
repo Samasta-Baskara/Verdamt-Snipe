@@ -10,11 +10,10 @@ import asyncio
 import ipaddress
 import ssl
 import time
-from typing import Dict
 from urllib.parse import urlparse
-from core.ua import DEFAULT_UA
 
-from core.ui import ph, i, s, w, p, G, R, C, N, B, draw_table
+from core.ua import DEFAULT_UA
+from core.ui import B, C, G, N, R, draw_table, i, p, ph, s, w
 
 # Internal IP ranges — skip these
 _INTERNAL_RANGES = [
@@ -83,7 +82,7 @@ class ConnectionExhaust:
         self.results["slowloris"]["attempted"] += 1
         writer = None
         try:
-            reader, writer = await self._open_connection()
+            _reader, writer = await self._open_connection()
             self.results["slowloris"]["opened"] += 1
 
             # Send partial headers — no trailing CRLF CRLF
@@ -157,7 +156,7 @@ class ConnectionExhaust:
                         if not resp:
                             break
                         reqs_done += 1
-                    except (asyncio.TimeoutError, TimeoutError):
+                    except TimeoutError:
                         reqs_done += 1  # request sent, response timed out
                         continue
                 except Exception:
@@ -188,7 +187,7 @@ class ConnectionExhaust:
         self.results["chunked_bomb"]["attempted"] += 1
         writer = None
         try:
-            reader, writer = await self._open_connection()
+            _reader, writer = await self._open_connection()
 
             # Open chunked request with max chunk size
             req = (
@@ -232,7 +231,7 @@ class ConnectionExhaust:
 
     # Run All
 
-    async def run(self) -> Dict:
+    async def run(self) -> dict:
         """Run all 3 attack modes in parallel — truly async."""
         if self._is_internal():
             w(f"Target {self.host} is internal — skipping connection exhaust")

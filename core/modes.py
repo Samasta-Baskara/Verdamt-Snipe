@@ -7,21 +7,21 @@ Split out of core/cli_parser.py (Tahap 3).
 import asyncio
 import re
 import time
-from urllib.parse import urlparse, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from core import cli_parser as _cli
 from core.cli_parser import AUTHOR, VERSION
-from core.ui import ph, i, w, s, Spinner, ScanDashboard, G, R, B, W, N, M, D
+from core.ui import B, D, G, M, N, R, ScanDashboard, Spinner, W, i, ph, s, w
 from modules.scanners import VulnVerifier
 from modules.web.server_side.blind_sqli_extract import BlindSQLiExtractor
-from runners.shared import inject_query_payload, run_katana_phase, run_waf_origin_phase
 from reports.engine import ReportEngine, finding_cvss
-from runners.recon_intel import run_recon_intel
-from runners.recon_light import run_recon_light
 from runners.app_analysis import run_app_analysis
-from runners.vuln_assault import run_vuln_assault
 from runners.full_assault import run_full_assault
 from runners.poison import run_poison_assault
+from runners.recon_intel import run_recon_intel
+from runners.recon_light import run_recon_light
+from runners.shared import inject_query_payload, run_katana_phase, run_waf_origin_phase
+from runners.vuln_assault import run_vuln_assault
 
 
 async def phase_verify_report(target, findings, services, subs, scan_urls, target_wafs, t0, mode, async_engine=None, session_manager=None):

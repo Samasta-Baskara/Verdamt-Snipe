@@ -23,12 +23,10 @@ Bypass categories:
 
 import asyncio
 import json
-from typing import Dict, List
 from urllib.parse import quote
 
-from core.ui import ph, i, s, w, Spinner, G, R, Y, C, N, B, draw_table
-from modules.waf.origin_hunter import hunt_origin, _quick_probe, _curl, _run_subprocess
-
+from core.ui import B, C, G, N, R, Spinner, Y, draw_table, i, ph, s, w
+from modules.waf.origin_hunter import _curl, _quick_probe, _run_subprocess, hunt_origin
 
 # WAF-SPECIFIC BYPASS TECHNIQUES
 
@@ -192,7 +190,7 @@ BYPASS_PATHS = [
 
 # BYPASS TECHNIQUES
 
-async def _try_header_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_header_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try header spoofing bypass techniques."""
     results = []
     paths_to_test = ["/", "/admin", "/api", "/login", "/dashboard"]
@@ -200,22 +198,21 @@ async def _try_header_bypass(domain: str, base: str, baseline: dict) -> List[dic
     for hdr_set in BYPASS_HEADERS:
         for path in paths_to_test:
             r = await _curl(f"{base}{path}", headers=hdr_set, timeout=8)
-            if r["status"] > 0:
-                # Check if we got different response than baseline
-                if r["status"] == 200 and baseline.get("status") in (403, 401, 406, 429):
-                    results.append({
-                        "type": "header_bypass",
-                        "title": "WAF Bypass via Header Spoofing",
-                        "url": f"{base}{path}",
-                        "detail": f"Header: {list(hdr_set.keys())[0]}={list(hdr_set.values())[0]} → {r['status']} (was {baseline['status']})",
-                        "confidence": "confirmed",
-                        "header": hdr_set,
-                    })
-                    break  # One working header per path is enough
+            # Different response than baseline (200 after a WAF-ish status)?
+            if r["status"] == 200 and baseline.get("status") in (403, 401, 406, 429):
+                results.append({
+                    "type": "header_bypass",
+                    "title": "WAF Bypass via Header Spoofing",
+                    "url": f"{base}{path}",
+                    "detail": f"Header: {next(iter(hdr_set.keys()))}={next(iter(hdr_set.values()))} → {r['status']} (was {baseline['status']})",
+                    "confidence": "confirmed",
+                    "header": hdr_set,
+                })
+                break  # One working header per path is enough
     return results
 
 
-async def _try_path_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_path_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try path normalization bypass techniques."""
     results = []
 
@@ -233,7 +230,7 @@ async def _try_path_bypass(domain: str, base: str, baseline: dict) -> List[dict]
     return results
 
 
-async def _try_method_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_method_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try HTTP method switching bypass."""
     results = []
     methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "TRACE", "CONNECT"]
@@ -263,7 +260,7 @@ async def _try_method_bypass(domain: str, base: str, baseline: dict) -> List[dic
     return results
 
 
-async def _try_encoding_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_encoding_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try encoding bypass techniques."""
     results = []
     sensitive_paths = ["/admin", "/api", "/login", "/config", "/debug"]
@@ -308,7 +305,7 @@ async def _try_encoding_bypass(domain: str, base: str, baseline: dict) -> List[d
     return results
 
 
-async def _try_chunked_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_chunked_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try chunked transfer encoding bypass."""
     results = []
     if baseline.get("status") not in (403, 401, 406, 429):
@@ -338,7 +335,7 @@ async def _try_chunked_bypass(domain: str, base: str, baseline: dict) -> List[di
     return results
 
 
-async def _try_h2_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_h2_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try HTTP/2 specific bypass techniques."""
     results = []
     if baseline.get("status") not in (403, 401, 406, 429):
@@ -367,7 +364,7 @@ async def _try_h2_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
     return results
 
 
-async def _try_waf_specific(domain: str, base: str, baseline: dict, waf_type: str) -> List[dict]:
+async def _try_waf_specific(domain: str, base: str, baseline: dict, waf_type: str) -> list[dict]:
     """Try WAF-specific bypass techniques."""
     results = []
     if baseline.get("status") not in (403, 401, 406, 429):
@@ -393,7 +390,7 @@ async def _try_waf_specific(domain: str, base: str, baseline: dict, waf_type: st
                     "type": f"{waf_type}_bypass",
                     "title": f"{waf_type.title()} Bypass via Header",
                     "url": f"{base}{path}",
-                    "detail": f"Header: {list(hdr_set.keys())[0]} → 200 (was {baseline['status']})",
+                    "detail": f"Header: {next(iter(hdr_set.keys()))} → 200 (was {baseline['status']})",
                     "confidence": "confirmed",
                     "waf": waf_type,
                 })
@@ -415,7 +412,7 @@ async def _try_waf_specific(domain: str, base: str, baseline: dict, waf_type: st
     return results
 
 
-async def _try_cache_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_cache_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try cache-based bypass techniques."""
     results = []
     if baseline.get("status") not in (403, 401, 406, 429):
@@ -436,7 +433,7 @@ async def _try_cache_bypass(domain: str, base: str, baseline: dict) -> List[dict
                 "type": "cache_bypass",
                 "title": "WAF Bypass via Cache Poisoning",
                 "url": f"{base}/",
-                "detail": f"Cache header: {list(hdr_set.keys())[0]} → 200 (was {baseline['status']})",
+                "detail": f"Cache header: {next(iter(hdr_set.keys()))} → 200 (was {baseline['status']})",
                 "confidence": "suspected",
                 "header": hdr_set,
             })
@@ -444,7 +441,7 @@ async def _try_cache_bypass(domain: str, base: str, baseline: dict) -> List[dict
     return results
 
 
-async def _try_hpp_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
+async def _try_hpp_bypass(domain: str, base: str, baseline: dict) -> list[dict]:
     """Try HTTP Parameter Pollution bypass."""
     results = []
     if baseline.get("status") not in (403, 401, 406, 429):
@@ -475,7 +472,7 @@ async def _try_hpp_bypass(domain: str, base: str, baseline: dict) -> List[dict]:
 # MAIN BYPASS PIPELINE
 
 async def try_bypasses(domain: str, port: int = 443, use_ssl: bool = True,
-                       waf_type: str = None) -> List[dict]:
+                       waf_type: str | None = None) -> list[dict]:
     """
     APT-grade WAF bypass pipeline.
     Runs all bypass techniques in parallel.
@@ -557,9 +554,9 @@ async def try_bypasses(domain: str, port: int = 443, use_ssl: bool = True,
     return unique_bypasses
 
 
-async def waf_bypass_pipeline(domain: str, subs: List[str] = None,
-                               scan_urls: List[str] = None,
-                              proxy: str = None) -> Dict:
+async def waf_bypass_pipeline(domain: str, subs: list[str] | None = None,
+                               scan_urls: list[str] | None = None,
+                              proxy: str | None = None) -> dict:
     """
     Full APT-grade WAF bypass pipeline.
     

@@ -20,14 +20,12 @@ Usage:
     # Auto-switches proxy when interval reached
 """
 
-import os
-import time
-import socket
 import asyncio
+import os
+import socket
 import threading
-from typing import Dict, List, Optional
-from urllib.parse import urlparse, unquote
-
+import time
+from urllib.parse import unquote, urlparse
 
 # Supported proxy schemes
 PROXY_SCHEMES = {"socks5", "socks5h", "socks4", "socks4a", "http", "https"}
@@ -36,15 +34,15 @@ PROXY_SCHEMES = {"socks5", "socks5h", "socks4", "socks4a", "http", "https"}
 class ProxyManager:
     """Unified proxy management for all verdamt-snipe tools."""
 
-    def __init__(self, initial_proxy: str = None):
+    def __init__(self, initial_proxy: str | None = None):
         self._lock = threading.Lock()
-        self.proxies: List[str] = []
+        self.proxies: list[str] = []
         self.current_index: int = 0
-        self.current_proxy: Optional[str] = initial_proxy
+        self.current_proxy: str | None = initial_proxy
         self.request_count: int = 0
         self.rotation_interval: int = 0  # 0 = disabled
         self.dead_proxies: set = set()
-        self.proxy_stats: Dict[str, Dict] = {}  # proxy → {requests, errors, last_used}
+        self.proxy_stats: dict[str, dict] = {}  # proxy → {requests, errors, last_used}
 
     def load_from_file(self, path: str) -> int:
         """Load proxies from file (one per line).
@@ -126,11 +124,11 @@ class ProxyManager:
                 self.proxy_stats[self.current_proxy] = stats
 
             # Auto-rotate
-            if self.rotation_interval > 0 and len(self.proxies) > 1:
-                if self.request_count % self.rotation_interval == 0:
-                    self._rotate_locked()
+            if (self.rotation_interval > 0 and len(self.proxies) > 1
+                    and self.request_count % self.rotation_interval == 0):
+                self._rotate_locked()
 
-    def _rotate_locked(self) -> Optional[str]:
+    def _rotate_locked(self) -> str | None:
         """Switch to next proxy (caller must hold lock)."""
         if len(self.proxies) <= 1:
             return self.current_proxy
@@ -151,12 +149,12 @@ class ProxyManager:
         self.current_proxy = self.proxies[0]
         return self.current_proxy
 
-    def get_current(self) -> Optional[str]:
+    def get_current(self) -> str | None:
         """Get current active proxy."""
         with self._lock:
             return self.current_proxy
 
-    def set_env_vars(self, proxy: str = None):
+    def set_env_vars(self, proxy: str | None = None):
         """Set environment variables so ALL tools use this proxy.
         
         Affects: curl, subfinder, httpx, nuclei, gau, katana, etc.
@@ -182,9 +180,7 @@ class ProxyManager:
             parsed = urlparse(proxy)
             if parsed.scheme and parsed.scheme not in PROXY_SCHEMES:
                 return False
-            if not parsed.hostname:
-                return False
-            return True
+            return parsed.hostname
         except Exception:
             return False
 
@@ -200,14 +196,14 @@ class ProxyManager:
 GLOBAL_PROXY_MGR = None
 
 
-def get_global_proxy_manager() -> Optional[ProxyManager]:
+def get_global_proxy_manager() -> ProxyManager | None:
     """Retrieve the active global ProxyManager singleton."""
     return GLOBAL_PROXY_MGR
 
 
 def setup_proxy(
-    proxy: str = None,
-    proxy_file: str = None,
+    proxy: str | None = None,
+    proxy_file: str | None = None,
     rotate: int = 0,
     use_env: bool = True,
 ) -> ProxyManager:
@@ -268,7 +264,7 @@ def setup_proxy(
 _ENV_FALLBACK_OK = True
 
 
-def resolve_proxy(proxy: str = None) -> Optional[str]:
+def resolve_proxy(proxy: str | None = None) -> str | None:
     """Proxy to use: explicit argument > global manager > VERDAMT_PROXY."""
     if proxy:
         return proxy
@@ -350,9 +346,9 @@ def _blocking_proxied_socket(proxy_url: str, host: str, port: int,
 
 
 async def open_proxied_connection(host: str, port: int, *, ssl=None,
-                                  server_hostname: str = None,
+                                  server_hostname: str | None = None,
                                   timeout: float = 10.0,
-                                  proxy: str = None):
+                                  proxy: str | None = None):
     """Open a TCP (optionally TLS) stream, tunneled through the active proxy.
 
     With no proxy configured this is exactly ``asyncio.open_connection``.

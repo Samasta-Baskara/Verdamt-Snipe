@@ -19,7 +19,7 @@ class PluginManager:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def discover(self, plugin_dir: str = None) -> list:
+    def discover(self, plugin_dir: str | None = None) -> list:
         """Scan modules/custom/ for plugin classes. Returns cached if already loaded."""
         if self._plugins:
             return self._plugins
@@ -62,7 +62,7 @@ async def run_plugins(state) -> list[dict]:
     Each plugin receives the full PoisonState and returns findings.
     Plugins run SEQUENTIALLY (not parallel) to avoid overwhelming targets.
     """
-    from core.ui import ph, i, G, N
+    from core.ui import G, N, i, ph
 
     pm = PluginManager()
     plugins = pm.discover()

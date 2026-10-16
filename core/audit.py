@@ -5,9 +5,9 @@ import os
 import shlex
 import sys
 import time
-from threading import Lock
-from typing import Dict, Any, Optional
 from pathlib import Path
+from threading import Lock
+from typing import Any
 
 BODY_CAP = 8192
 EVIDENCE_CAP = 4096
@@ -19,7 +19,7 @@ class AuditLogger:
     _instance = None
     _lock = Lock()
 
-    def __init__(self, log_path: Optional[str] = None):
+    def __init__(self, log_path: str | None = None):
         self.log_path = log_path
         self._file_lock = Lock()
         # Lazy run-marker: ditulis pada entry PERTAMA run ini, bukan saat
@@ -43,7 +43,7 @@ class AuditLogger:
             cls._instance = AuditLogger(log_path)
             return cls._instance
 
-    def _write_entry(self, entry: Dict[str, Any]) -> None:
+    def _write_entry(self, entry: dict[str, Any]) -> None:
         if not self.log_path:
             return
         entry["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -80,10 +80,10 @@ class AuditLogger:
         allowed: bool = True,
         reason: str = "",
         dry_run: bool = False,
-        waf: Optional[str] = None,
-        headers: Optional[Dict[str, Any]] = None,
-        body: Optional[str] = None,
-        trace_id: Optional[str] = None,
+        waf: str | None = None,
+        headers: dict[str, Any] | None = None,
+        body: str | None = None,
+        trace_id: str | None = None,
     ) -> None:
         """Record an HTTP request authorization / execution attempt.
 
@@ -121,8 +121,8 @@ class AuditLogger:
         method: str = "GET",
         status_code: int = 0,
         elapsed: float = 0.0,
-        error: Optional[str] = None,
-        trace_id: Optional[str] = None,
+        error: str | None = None,
+        trace_id: str | None = None,
     ) -> None:
         """Record post-dispatch outcome (real status/latency of the request)."""
         entry = {
@@ -139,7 +139,7 @@ class AuditLogger:
         self._write_entry(entry)
 
     def log_refund(self, url: str = "", reason: str = "",
-                   trace_id: Optional[str] = None) -> None:
+                   trace_id: str | None = None) -> None:
         """A charged request that never dispatched (budget returned)."""
         entry = {"type": "refund", "url": url, "reason": reason}
         if trace_id:
@@ -152,9 +152,9 @@ class AuditLogger:
         severity: str,
         url: str,
         detail: str = "",
-        cvss: Optional[float] = None,
-        evidence: Optional[str] = None,
-        trace_id: Optional[str] = None,
+        cvss: float | None = None,
+        evidence: str | None = None,
+        trace_id: str | None = None,
     ) -> None:
         """Record a security finding discovery.
 
@@ -178,7 +178,7 @@ class AuditLogger:
         self._write_entry(entry)
 
 
-def entry_to_curl(entry: Dict[str, Any]) -> str:
+def entry_to_curl(entry: dict[str, Any]) -> str:
     """Reconstruct a replayable curl command from a 'request' audit entry.
 
     Returns "" for non-replayable entries (findings, responses, bulk charges,
@@ -203,7 +203,7 @@ def entry_to_curl(entry: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def load_replay_index(log_path: Optional[str]) -> Dict[str, str]:
+def load_replay_index(log_path: str | None) -> dict[str, str]:
     """Map url -> replayable curl command from an audit .jsonl.
 
     Last entry wins per url; when a url has both GET and POST variants the
@@ -211,7 +211,7 @@ def load_replay_index(log_path: Optional[str]) -> Dict[str, str]:
     """
     if not log_path or not os.path.exists(log_path):
         return {}
-    index: Dict[str, tuple] = {}
+    index: dict[str, tuple] = {}
     with open(log_path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -234,7 +234,7 @@ def load_replay_index(log_path: Optional[str]) -> Dict[str, str]:
     return {u: c for u, (c, _) in index.items()}
 
 
-def inject_replay_curls(findings: list, log_path: Optional[str]) -> int:
+def inject_replay_curls(findings: list, log_path: str | None) -> int:
     """Attach finding['audit_curl'] (exact recorded request) where the audit
     trail has a replayable entry for the finding's URL. Returns match count."""
     index = load_replay_index(log_path)
@@ -294,5 +294,5 @@ if __name__ == "__main__":
     if shown == 0:
         print("(no matching entries)", file=sys.stderr)
     elif not args.all and shown > args.limit:
-        print(f"(+ more — use --all or -n)", file=sys.stderr)
+        print("(+ more — use --all or -n)", file=sys.stderr)
 

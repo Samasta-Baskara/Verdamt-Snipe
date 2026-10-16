@@ -22,9 +22,8 @@ from rich.console import Console
 
 from core.ui import styles, tables
 from core.ui.banner import _PIPELINE_STAGES_BY_MODE
+from core.ui.styles import D_BG, D_BORDER, D_CRIT, D_DIM, D_ELEV, D_EMERALD, D_GOLD, D_INFO, D_PANEL, D_TEXT, D_WARN
 from core.ui.tables import ScanDashboard
-from core.ui.styles import (D_BG, D_EMERALD, D_GOLD, D_INFO, D_TEXT, D_DIM,
-                            D_WARN, D_CRIT, D_BORDER, D_PANEL, D_ELEV)
 
 
 def _segments(dash, width, height):

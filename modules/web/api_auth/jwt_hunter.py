@@ -3,6 +3,7 @@ import base64
 import json
 import re
 from urllib.parse import urlparse
+
 from core.client import AsyncNetworkEngine
 
 COMMON_SECRETS = [
@@ -36,7 +37,7 @@ def _parse_jwt(token: str) -> dict:
         return None
 
 
-def _extract_jwt(headers: dict, body: str, cookies: dict = None) -> str:
+def _extract_jwt(headers: dict, body: str, cookies: dict | None = None) -> str:
     auth = headers.get("authorization", headers.get("Authorization", ""))
     if auth.lower().startswith("bearer "):
         token = auth[7:]

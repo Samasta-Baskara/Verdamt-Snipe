@@ -1,9 +1,8 @@
-from typing import List, Dict, Any, Set
+from typing import Any
 from urllib.parse import urlparse
 
 from core.playwright_compat import PLAYWRIGHT_AVAILABLE
-
-from core.ui import ph, s, w, N, W
+from core.ui import N, W, ph, s, w
 
 
 class SPACrawler:
@@ -17,10 +16,10 @@ class SPACrawler:
         self.target_url = target_url
         self.domain = urlparse(target_url).netloc
         self.max_depth = max_depth
-        self.discovered_urls: Set[str] = set()
-        self.discovered_params: Dict[str, List[str]] = {}
+        self.discovered_urls: set[str] = set()
+        self.discovered_params: dict[str, list[str]] = {}
 
-    async def run(self) -> Dict[str, Any]:
+    async def run(self) -> dict[str, Any]:
         if not PLAYWRIGHT_AVAILABLE:
             w("Playwright not installed. Skipping SPA dynamic crawler.")
             return {"urls": [], "params": {}}
@@ -48,7 +47,7 @@ class SPACrawler:
                         if parsed.query:
                             from urllib.parse import parse_qs
                             q_dict = parse_qs(parsed.query)
-                            for k in q_dict.keys():
+                            for k in q_dict:
                                 self.discovered_params.setdefault(parsed.path or "/", []).append(k)
 
                 page.on("request", handle_request)

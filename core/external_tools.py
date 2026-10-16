@@ -10,10 +10,9 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Dict, List, Optional, Tuple
 
 from core.policy import ScanPolicy
-from core.ui import ph, i, p, w, Spinner, G, Y, R, C, M, W, GY, N, draw_table
+from core.ui import GY, C, G, M, N, R, Spinner, W, Y, draw_table, i, p, ph, w
 
 # TOOL DISCOVERY
 
@@ -25,7 +24,7 @@ _GO_BIN_PATHS = [
 ]
 
 
-def _find_tool(name: str) -> Optional[str]:
+def _find_tool(name: str) -> str | None:
     """Find executable path for a tool, checking PATH and common Go bin dirs.
     
     For known CLI tools (projectdiscovery Go binaries), check ~/go/bin FIRST
@@ -53,7 +52,7 @@ def _find_tool(name: str) -> Optional[str]:
     return None
 
 
-def _tool_proxy(proxy: Optional[str]) -> Optional[str]:
+def _tool_proxy(proxy: str | None) -> str | None:
     """Normalisasi proxy URL untuk tool berbasis Go.
 
     `socks5h://` adalah alias khusus curl (resolve DNS lewat SOCKS); tool Go
@@ -66,7 +65,7 @@ def _tool_proxy(proxy: Optional[str]) -> Optional[str]:
     return proxy
 
 
-def _policy_allows_tool(policy: Optional[ScanPolicy], tool_name: str) -> bool:
+def _policy_allows_tool(policy: ScanPolicy | None, tool_name: str) -> bool:
     """Check policy before an external tool is invoked."""
     if not policy:
         return True
@@ -84,7 +83,7 @@ def _policy_allows_tool(policy: Optional[ScanPolicy], tool_name: str) -> bool:
 UNCOUNTED_TOOL_FLOOR = 200
 
 
-def _uncounted_tool_allowed(policy: Optional[ScanPolicy], tool_name: str) -> bool:
+def _uncounted_tool_allowed(policy: ScanPolicy | None, tool_name: str) -> bool:
     """Budget gate for external tools whose traffic is not debited."""
     if policy is None:
         return True
@@ -98,8 +97,8 @@ def _uncounted_tool_allowed(policy: Optional[ScanPolicy], tool_name: str) -> boo
     return True
 
 
-def _run_tool(tool_name: str, args: List[str], timeout: int = 120,
-              input_data: str = None, proxy: str = None) -> Tuple[int, str, str]:
+def _run_tool(tool_name: str, args: list[str], timeout: int = 120,
+              input_data: str | None = None, proxy: str | None = None) -> tuple[int, str, str]:
     """Run an external tool and return (returncode, stdout, stderr).
     Raises FileNotFoundError if tool is not installed.
     
@@ -211,9 +210,9 @@ def kill_active_procs(reason: str = "scan deadline") -> int:
         procs = list(_ACTIVE_PROCS)
         _ACTIVE_PROCS.clear()
     killed = 0
-    for p in procs:
+    for proc in procs:
         try:
-            p.terminate()
+            proc.terminate()
             killed += 1
         except Exception:
             pass
@@ -229,8 +228,8 @@ def kill_active_procs(reason: str = "scan deadline") -> int:
 # SUBFINDER — Subdomain Enumeration
 
 def run_subfinder(domain: str, timeout: int = 30,
-                  policy: Optional[ScanPolicy] = None,
-                  proxy: str = None) -> List[str]:
+                  policy: ScanPolicy | None = None,
+                  proxy: str | None = None) -> list[str]:
     """Run subfinder for subdomain enumeration.
     Returns list of discovered subdomains.
     """
@@ -283,8 +282,8 @@ def run_subfinder(domain: str, timeout: int = 30,
 
 # HTTPX — HTTP Probing & Tech Detection
 
-def run_httpx(targets: List[str], timeout: int = 60, proxy: str = None,
-              policy: Optional[ScanPolicy] = None) -> List[Dict]:
+def run_httpx(targets: list[str], timeout: int = 60, proxy: str | None = None,
+              policy: ScanPolicy | None = None) -> list[dict]:
     """Run httpx to probe live HTTP services.
     Returns list of service dicts compatible with the existing pipeline.
     """
@@ -325,7 +324,7 @@ def run_httpx(targets: List[str], timeout: int = 60, proxy: str = None,
         args.extend(["-proxy", _tool_proxy(proxy)])
 
     try:
-        rc, stdout, stderr = _run_tool("httpx", args,
+        _rc, stdout, _stderr = _run_tool("httpx", args,
                                         timeout=timeout, input_data=input_data,
                                         proxy=proxy)
         spin.stop()
@@ -403,7 +402,7 @@ def run_httpx(targets: List[str], timeout: int = 60, proxy: str = None,
 # GAU — URL Collection (GetAllUrls)
 
 def run_gau(domain: str, timeout: int = 90,
-            policy: Optional[ScanPolicy] = None) -> List[str]:
+            policy: ScanPolicy | None = None) -> list[str]:
     """Run gau to collect historical URLs from multiple sources.
     Returns list of URLs.
     """
@@ -436,7 +435,7 @@ def run_gau(domain: str, timeout: int = 90,
 # WAYBACKURLS — Wayback Machine URL Mining
 
 def run_waybackurls(domain: str, timeout: int = 90,
-                    policy: Optional[ScanPolicy] = None) -> List[str]:
+                    policy: ScanPolicy | None = None) -> list[str]:
     """Run waybackurls to mine archived URLs."""
     if not _policy_allows_tool(policy, "waybackurls"):
         return []
@@ -462,8 +461,8 @@ def run_waybackurls(domain: str, timeout: int = 90,
 
 # KATANA — Deep Crawling
 
-def run_katana(url: str, depth: int = 2, timeout: int = 60, proxy: str = None,
-               policy: Optional[ScanPolicy] = None) -> Dict:
+def run_katana(url: str, depth: int = 2, timeout: int = 60, proxy: str | None = None,
+               policy: ScanPolicy | None = None) -> dict:
     """Run katana for deep endpoint crawling.
     Returns dict with 'endpoints' and 'params'.
     """
@@ -537,10 +536,10 @@ def run_katana(url: str, depth: int = 2, timeout: int = 60, proxy: str = None,
 
 # NUCLEI — Template-Based Vulnerability Scanning
 
-def run_nuclei(targets: List[str], templates: str = None,
+def run_nuclei(targets: list[str], templates: str | None = None,
                severity: str = "medium,high,critical", timeout: int = 300,
-               auth_headers: dict = None, tech_tags: List[str] = None,
-               proxy: str = None, policy: Optional[ScanPolicy] = None) -> List[Dict]:
+               auth_headers: dict | None = None, tech_tags: list[str] | None = None,
+               proxy: str | None = None, policy: ScanPolicy | None = None) -> list[dict]:
     """Run nuclei template scanner with optional auth injection and tech-aware templates.
     Returns list of finding dicts compatible with verdamt-snipe format.
     """
@@ -721,8 +720,8 @@ def _nuclei_severity_to_cvss(severity: str) -> float:
 
 # DALFOX — XSS Scanner
 
-def run_dalfox(urls: List[str], timeout: int = 180, proxy: str = None,
-               headers: dict = None, policy: Optional[ScanPolicy] = None) -> List[Dict]:
+def run_dalfox(urls: list[str], timeout: int = 180, proxy: str | None = None,
+               headers: dict | None = None, policy: ScanPolicy | None = None) -> list[dict]:
     """Run dalfox for XSS scanning.
     Returns list of XSS finding dicts.
     """

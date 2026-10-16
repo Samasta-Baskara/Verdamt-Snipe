@@ -12,15 +12,13 @@ Techniques:
 v3: Full async with precise timing differential, no blocking sockets.
 """
 import asyncio
+import random
 import ssl
 import time
-import random
-from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from core.client import AsyncNetworkEngine
-from core.ui import i, s, w, ph, R, C, W, N, Y
-
+from core.ui import C, N, R, W, Y, i, ph, s, w
 
 SMUGGLE_SIGNATURES = {
     "CL.TE": {
@@ -112,7 +110,7 @@ CL_ZERO_PAYLOADS = [
 
 
 async def _async_raw_request(host: str, port: int, use_ssl: bool,
-                              raw_data: str, read_timeout: float = 5) -> Optional[str]:
+                              raw_data: str, read_timeout: float = 5) -> str | None:
     """Send raw bytes and return response text. Fully async."""
     ssl_ctx = None
     if use_ssl:
@@ -146,10 +144,10 @@ async def _async_raw_request(host: str, port: int, use_ssl: bool,
                         extra = await asyncio.wait_for(reader.read(4096), timeout=2)
                         if extra:
                             resp += extra
-                    except (asyncio.TimeoutError, TimeoutError):
+                    except TimeoutError:
                         pass
                     break
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             pass
 
         writer.close()
@@ -172,7 +170,7 @@ async def _async_raw_request(host: str, port: int, use_ssl: bool,
                 pass
 
 
-async def _async_smuggle_test(host: str, port: int, use_ssl: bool, variant: str) -> Optional[str]:
+async def _async_smuggle_test(host: str, port: int, use_ssl: bool, variant: str) -> str | None:
     """CL.TE or TE.CL smuggling test with timing differential."""
     probe_path = f"smuggle_probe_{int(time.time() * 1000) % 999999}"
     config = SMUGGLE_SIGNATURES[variant]
@@ -205,7 +203,7 @@ async def _async_smuggle_test(host: str, port: int, use_ssl: bool, variant: str)
 
 
 async def _async_smuggle_te_te(host: str, port: int, use_ssl: bool,
-                                obfuscated_te: str) -> Optional[str]:
+                                obfuscated_te: str) -> str | None:
     """TE.TE test with obfuscated Transfer-Encoding."""
     probe_path = f"smuggle_te_{int(time.time() * 1000) % 999999}"
 
@@ -237,7 +235,7 @@ async def _async_smuggle_te_te(host: str, port: int, use_ssl: bool,
     return None
 
 
-async def _async_smuggle_cl_zero(host: str, port: int, use_ssl: bool) -> List[Dict]:
+async def _async_smuggle_cl_zero(host: str, port: int, use_ssl: bool) -> list[dict]:
     """CL.0 smuggling — body after Content-Length: 0 on keep-alive connection."""
     findings = []
 
@@ -254,7 +252,7 @@ async def _async_smuggle_cl_zero(host: str, port: int, use_ssl: bool) -> List[Di
         if len(responses) >= 3 or probe in resp_text:
             findings.append({
                 "type": "http_smuggling_cl_0",
-                "title": f"HTTP Smuggling (CL.0)",
+                "title": "HTTP Smuggling (CL.0)",
                 "url": f"{'https' if use_ssl else 'http'}://{host}:{port}/",
                 "detail": payload_cfg["desc"],
                 "confidence": "confirmed",
@@ -264,7 +262,7 @@ async def _async_smuggle_cl_zero(host: str, port: int, use_ssl: bool) -> List[Di
     return findings
 
 
-async def _timing_differential_test(host: str, port: int, use_ssl: bool) -> List[Dict]:
+async def _timing_differential_test(host: str, port: int, use_ssl: bool) -> list[dict]:
     """
     Timing-based smuggling detection.
 
@@ -355,7 +353,7 @@ async def scan_smuggling(
     url: str,
     engine: AsyncNetworkEngine = None,
     session_manager=None,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Full HTTP Request Smuggling scan — APT-grade.
     Tests CL.TE, TE.CL, TE.TE, CL.0, and timing differential.

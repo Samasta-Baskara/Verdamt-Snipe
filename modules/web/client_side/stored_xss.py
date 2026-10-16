@@ -3,7 +3,6 @@
 
 import asyncio
 import uuid
-from typing import Dict, List
 from urllib.parse import urlparse
 
 from core.client import AsyncNetworkEngine
@@ -18,17 +17,17 @@ class StoredXSSHunter:
         "/comment", "/post", "/profile", "/settings", "/review",
     ]
 
-    def __init__(self, target_urls: List[str], engine: AsyncNetworkEngine,
+    def __init__(self, target_urls: list[str], engine: AsyncNetworkEngine,
                  session_manager=None, allow_post: bool = True):
         self.target_urls = target_urls
         self.engine = engine
         self.session_manager = session_manager
         self.allow_post = allow_post
         
-    async def run(self) -> List[Dict]:
+    async def run(self) -> list[dict]:
         findings = []
 
-        async def _test_form(form_url: str) -> List[Dict]:
+        async def _test_form(form_url: str) -> list[dict]:
             parsed_form = urlparse(form_url)
             base = f"{parsed_form.scheme}://{parsed_form.netloc}"
             form_findings = []
@@ -107,7 +106,7 @@ class StoredXSSHunter:
 
         sem = asyncio.Semaphore(10)
 
-        async def _limited(form_url: str) -> List[Dict]:
+        async def _limited(form_url: str) -> list[dict]:
             async with sem:
                 return await _test_form(form_url)
 

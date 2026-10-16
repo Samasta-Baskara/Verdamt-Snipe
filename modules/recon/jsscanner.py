@@ -1,12 +1,14 @@
-import sys
 import os
 import re
+import sys
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
 from urllib.parse import urlparse
-from typing import List, Set, Optional
-from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C
+
 from core.go_bridge import go_bridge
+from core.ui import GY, C, G, N, R, Spinner, W, Y, draw_table, i, p, ph, w
+
 
 class JSScanner:
     """Scan Javascript files for secrets, API keys, internal endpoints, and hidden API routes."""
@@ -78,7 +80,7 @@ class JSScanner:
         r'^/static/(?:css|js|img|fonts)/',
     ]
 
-    def __init__(self, urls: List[str], threads: int = 10, scope_guard=None, async_engine=None):
+    def __init__(self, urls: list[str], threads: int = 10, scope_guard=None, async_engine=None):
         self.urls = urls
         self.threads = threads
         self.scope_guard = scope_guard
@@ -86,7 +88,7 @@ class JSScanner:
         self._sem = asyncio.Semaphore(threads)
         self.js_urls = self._extract_js_urls()
         self.findings = []
-        self.discovered_endpoints: Set[str] = set()
+        self.discovered_endpoints: set[str] = set()
 
     LIBRARY_KEYWORDS = [
         'jquery', 'bootstrap', 'vue', 'react', 'angular', 'moment', 'lodash', 'axios',
@@ -95,7 +97,7 @@ class JSScanner:
         'masonry', 'select2', 'datatables', 'chart.js', 'three.js', 'gsap'
     ]
 
-    def _extract_js_urls(self) -> List[str]:
+    def _extract_js_urls(self) -> list[str]:
         custom_js = []
         lib_js = []
         for u in self.urls:
@@ -127,16 +129,16 @@ class JSScanner:
             }:
                 return True
         for pattern in self.ENDPOINT_NOISE:
-            if re.search(pattern, endpoint, re.I):
+            if re.search(pattern, endpoint, re.IGNORECASE):
                 return True
         return False
 
-    def _extract_endpoints(self, content: str) -> Set[str]:
+    def _extract_endpoints(self, content: str) -> set[str]:
         """Extract API endpoints and routes from JavaScript content."""
         endpoints = set()
         
         for pattern in self.ENDPOINT_PATTERNS:
-            matches = re.finditer(pattern, content, re.I)
+            matches = re.finditer(pattern, content, re.IGNORECASE)
             for match in matches:
                 endpoint = match.group(1)
                 # Normalize
@@ -191,7 +193,7 @@ class JSScanner:
 
         return local_findings, local_endpoints
 
-    async def _download_url_async(self, url: str) -> Optional[dict]:
+    async def _download_url_async(self, url: str) -> dict | None:
         """Download JS file content asynchronously."""
         async with self._sem:
             try:

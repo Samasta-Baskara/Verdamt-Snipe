@@ -1,8 +1,10 @@
 import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock
-from modules.recon.jsscanner import JSScanner
+
 from core.go_bridge import go_bridge
+from modules.recon.jsscanner import JSScanner
+
 
 class TestJSScanner(unittest.TestCase):
 

@@ -13,14 +13,14 @@ import time
 import uuid
 import zlib
 from dataclasses import dataclass
-from typing import List, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
+
 from core.audit import AuditLogger
-from core.ua import BARE_UA, DEFAULT_UA, STEALTH_UAS
-from core.policy import ScanPolicy
 from core.http_codec import _dechunk
+from core.policy import ScanPolicy
+from core.ua import BARE_UA, DEFAULT_UA, STEALTH_UAS
 
 try:
     import brotli
@@ -30,7 +30,7 @@ except ImportError:
 _POLICY_DENY_WARNED: set = set()
 
 
-def _audit_body(data=None, json_body=None) -> Optional[str]:
+def _audit_body(data=None, json_body=None) -> str | None:
     """Normalize a request payload for the audit trail (curl-replay fidelity).
 
     Mirrors what the transport will send: JSON dumps for json=, urlencoded for
@@ -129,9 +129,7 @@ class GhostMode:
         """
         if cls.ENABLED:
             return True
-        if cls._rate_limiter and cls._rate_limiter.is_auto_stealth(host):
-            return True
-        return False
+        return bool(cls._rate_limiter and cls._rate_limiter.is_auto_stealth(host))
 
     @staticmethod
     def get_stealth_headers(host: str) -> dict:
@@ -350,12 +348,12 @@ class HTTPClient:
 
 # Raw Socket HTTP (zero-dependency sync)
 
-def http_send(url: str, method: str = "GET", headers: dict = None,
-              data: str = None, timeout: int = TIMEOUT,
+def http_send(url: str, method: str = "GET", headers: dict | None = None,
+              data: str | None = None, timeout: int = TIMEOUT,
               bypass: bool = False, raw: bool = False,
               max_retries: int = 3,
-              impersonate: str = None,
-              policy: Optional[ScanPolicy] = None) -> dict:
+              impersonate: str | None = None,
+              policy: ScanPolicy | None = None) -> dict:
     """HTTP(S) request with optional TLS fingerprint impersonation.
     
     Args:
@@ -393,8 +391,9 @@ def http_send(url: str, method: str = "GET", headers: dict = None,
         timeout = policy.clamp_timeout(timeout)
 
     # Local import to avoid circular dep (core.client → modules.auth → ...)
+    from core.ui import count_request
+    from core.ui import w as log_warn
     from modules.auth.bypass import WAFBypass
-    from core.ui import w as log_warn, count_request
     count_request()
 
     p = urlparse(url)
@@ -402,7 +401,7 @@ def http_send(url: str, method: str = "GET", headers: dict = None,
 
     # curl_cffi path (TLS impersonation — default)
     try:
-        from core.curl_cffi_transport import CurlCffiSession, CURL_CFFI_AVAILABLE
+        from core.curl_cffi_transport import CURL_CFFI_AVAILABLE, CurlCffiSession
         if CURL_CFFI_AVAILABLE:
             target = impersonate or "chrome"
             session = CurlCffiSession(
@@ -608,7 +607,7 @@ def thttp(*a, **kw):
                 "error": str(ex) or type(ex).__name__, "waf": []}
 
 
-def dns_resolve(domain: str) -> List[str]:
+def dns_resolve(domain: str) -> list[str]:
     """Resolve domain to IPs (IPv4 + IPv6)."""
     ips = set()
     for af in (socket.AF_INET, socket.AF_INET6):

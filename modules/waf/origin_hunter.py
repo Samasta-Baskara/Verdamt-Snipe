@@ -39,11 +39,9 @@ import socket
 import ssl
 import subprocess
 import time
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from core.ui import ph, i, s, w, p, Spinner, G, Y, C, N, B, draw_table
-
+from core.ui import B, C, G, N, Spinner, Y, draw_table, i, p, ph, s, w
 
 # CONSTANTS — WAF/CDN CIDR Ranges
 
@@ -111,7 +109,7 @@ for _provider, _cidrs in WAF_CIDRS.items():
             pass
 
 
-def _is_waf_ip(ip_str: str) -> Tuple[bool, str]:
+def _is_waf_ip(ip_str: str) -> tuple[bool, str]:
     """Check if IP belongs to known WAF/CDN. Returns (is_waf, provider_name)."""
     try:
         ip = ipaddress.ip_address(ip_str)
@@ -125,7 +123,7 @@ def _is_waf_ip(ip_str: str) -> Tuple[bool, str]:
     return False, ""
 
 
-def _resolve(domain: str) -> List[str]:
+def _resolve(domain: str) -> list[str]:
     """Resolve domain to IPs."""
     try:
         _, _, ips = socket.gethostbyname_ex(domain)
@@ -145,7 +143,7 @@ def _is_valid_ip(ip_str: str) -> bool:
 
 # HTTP HELPERS
 
-async def _run_subprocess(cmd: List[str], timeout: float):
+async def _run_subprocess(cmd: list[str], timeout: float):
     """Jalankan subprocess async DENGAN REAP DIJAMIN di semua jalur keluar.
 
     Pola lama `wait_for(proc.communicate(), timeout)` + `except: pass`
@@ -185,8 +183,8 @@ async def _run_subprocess(cmd: List[str], timeout: float):
             pass
 
 
-async def _curl(url: str, headers: dict = None, host: str = None,
-                timeout: int = 10, follow: bool = True, data: str = None) -> dict:
+async def _curl(url: str, headers: dict | None = None, host: str | None = None,
+                timeout: int = 10, follow: bool = True, data: str | None = None) -> dict:
     """Async curl wrapper with full response capture."""
     cmd = ["curl", "-s", "-k", "-i",
            "--connect-timeout", str(min(timeout, 10)),
@@ -249,7 +247,7 @@ async def _curl(url: str, headers: dict = None, host: str = None,
     }
 
 
-async def _curl_json(url: str, timeout: int = 10) -> Optional[dict]:
+async def _curl_json(url: str, timeout: int = 10) -> dict | None:
     """Fetch and parse JSON."""
     r = await _curl(url, timeout=timeout, follow=True)
     if r["status"] == 200 and r["body"]:
@@ -260,7 +258,7 @@ async def _curl_json(url: str, timeout: int = 10) -> Optional[dict]:
     return None
 
 
-async def _quick_probe(url: str, host: str = None) -> dict:
+async def _quick_probe(url: str, host: str | None = None) -> dict:
     """Quick probe with body hash for comparison."""
     r = await _curl(url, host=host, timeout=8)
     body_hash = hashlib.md5((r["body"] or "").encode()).hexdigest()
@@ -278,20 +276,20 @@ async def _quick_probe(url: str, host: str = None) -> dict:
 
 # SSL/TLS HELPERS
 
-def _get_ssl_cert(host: str, port: int = 443, timeout: int = 5) -> Optional[dict]:
+def _get_ssl_cert(host: str, port: int = 443, timeout: int = 5) -> dict | None:
     """Get SSL certificate info from a host."""
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((host, port), timeout=timeout) as sock:
-            with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+        with socket.create_connection((host, port), timeout=timeout) as sock, \
+             ctx.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert(binary_form=True)
                 # Parse with openssl
                 proc = subprocess.run(
                     ["openssl", "x509", "-inform", "DER", "-noout",
                      "-subject", "-issuer", "-serial", "-dates", "-ext", "subjectAltName"],
-                    input=cert, capture_output=True, timeout=5
+                    input=cert, capture_output=True, timeout=5, check=False
                 )
                 return {
                     "raw": cert.hex()[:200],
@@ -302,14 +300,14 @@ def _get_ssl_cert(host: str, port: int = 443, timeout: int = 5) -> Optional[dict
         return None
 
 
-def _get_ssl_cert_from_ip(ip: str, host: str, port: int = 443) -> Optional[dict]:
+def _get_ssl_cert_from_ip(ip: str, host: str, port: int = 443) -> dict | None:
     """Get SSL cert from IP with Host header SNI."""
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        with socket.create_connection((ip, port), timeout=5) as sock:
-            with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+        with socket.create_connection((ip, port), timeout=5) as sock, \
+             ctx.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert(binary_form=True)
                 return {
                     "hash": hashlib.md5(cert).hexdigest(),
@@ -321,7 +319,7 @@ def _get_ssl_cert_from_ip(ip: str, host: str, port: int = 443) -> Optional[dict]
 
 # ORIGIN DISCOVERY — 17 METHODS
 
-async def _method_crt_ip(domain: str) -> List[dict]:
+async def _method_crt_ip(domain: str) -> list[dict]:
     """1. crt.sh — Extract IPs directly from certificate data."""
     results = []
     data = await _curl_json(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=15)
@@ -333,7 +331,7 @@ async def _method_crt_ip(domain: str) -> List[dict]:
             val = entry.get(field, "")
             for ip_str in re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', val):
                 if _is_valid_ip(ip_str):
-                    is_waf, provider = _is_waf_ip(ip_str)
+                    is_waf, _provider = _is_waf_ip(ip_str)
                     if not is_waf:
                         results.append({"ip": ip_str, "source": "crt.sh cert", "confidence": "medium"})
 
@@ -347,7 +345,7 @@ async def _method_crt_ip(domain: str) -> List[dict]:
     return unique[:20]
 
 
-async def _method_crt_subdomains(domain: str) -> List[dict]:
+async def _method_crt_subdomains(domain: str) -> list[dict]:
     """2. crt.sh — Subdomain extraction → resolve non-WAF IPs."""
     data = await _curl_json(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=15)
     if not data:
@@ -363,7 +361,7 @@ async def _method_crt_subdomains(domain: str) -> List[dict]:
     results = []
     for sub in list(subs)[:50]:
         for ip in _resolve(sub):
-            is_waf, provider = _is_waf_ip(ip)
+            is_waf, _provider = _is_waf_ip(ip)
             if not is_waf:
                 results.append({"ip": ip, "source": f"crt.sh sub: {sub}", "confidence": "medium"})
 
@@ -377,7 +375,7 @@ async def _method_crt_subdomains(domain: str) -> List[dict]:
     return unique[:20]
 
 
-async def _method_otx(domain: str) -> List[dict]:
+async def _method_otx(domain: str) -> list[dict]:
     """3. AlienVault OTX — Passive DNS history."""
     data = await _curl_json(
         f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns",
@@ -406,7 +404,7 @@ async def _method_otx(domain: str) -> List[dict]:
     return results[:20]
 
 
-async def _method_securitytrails(domain: str) -> List[dict]:
+async def _method_securitytrails(domain: str) -> list[dict]:
     """4. SecurityTrails — DNS history (API-free scraping)."""
     results = []
     # Try the public API endpoint (limited, no key needed)
@@ -438,7 +436,7 @@ async def _method_securitytrails(domain: str) -> List[dict]:
     return unique[:15]
 
 
-async def _method_favicon_shodan(domain: str) -> List[dict]:
+async def _method_favicon_shodan(domain: str) -> list[dict]:
     """5. Shodan — Favicon hash search (mmh3)."""
     results = []
     r = await _curl(f"https://{domain}/favicon.ico", timeout=8)
@@ -470,7 +468,7 @@ async def _method_favicon_shodan(domain: str) -> List[dict]:
     return results[:10]
 
 
-async def _method_ssl_cert_search(domain: str) -> List[dict]:
+async def _method_ssl_cert_search(domain: str) -> list[dict]:
     """6. Shodan/Censys — SSL certificate serial number search."""
     results = []
     cert_info = await asyncio.to_thread(_get_ssl_cert, domain)
@@ -499,7 +497,7 @@ async def _method_ssl_cert_search(domain: str) -> List[dict]:
     return results[:10]
 
 
-async def _method_censys(domain: str) -> List[dict]:
+async def _method_censys(domain: str) -> list[dict]:
     """7. Censys — Certificate search via keyless endpoint.
 
     Non-200 (401/403 without an API key) RAISES instead of returning a
@@ -533,7 +531,7 @@ async def _method_censys(domain: str) -> List[dict]:
     return results[:15]
 
 
-async def _method_fofa(domain: str) -> List[dict]:
+async def _method_fofa(domain: str) -> list[dict]:
     """8. Fofa — Asset search (API-free)."""
     results = []
     # Fofa public search (limited)
@@ -563,7 +561,7 @@ async def _method_fofa(domain: str) -> List[dict]:
     return results[:10]
 
 
-async def _method_wayback(domain: str) -> List[dict]:
+async def _method_wayback(domain: str) -> list[dict]:
     """9. Wayback Machine — Historical subdomains + IPs."""
     results = []
     data = await _curl_json(
@@ -593,7 +591,7 @@ async def _method_wayback(domain: str) -> List[dict]:
     return results[:15]
 
 
-async def _method_email_infra(domain: str) -> List[dict]:
+async def _method_email_infra(domain: str) -> list[dict]:
     """10. MX/TXT/SPF/DMARC — Email infrastructure → same network."""
     results = []
     seen = set()
@@ -629,10 +627,9 @@ async def _method_email_infra(domain: str) -> List[dict]:
                             results.append({"ip": str(net.network_address), "source": f"SPF: {ip_str}", "confidence": "low"})
                         except ValueError:
                             pass
-                    elif _is_valid_ip(ip_str):
-                        if ip_str not in seen:
-                            seen.add(ip_str)
-                            results.append({"ip": ip_str, "source": f"SPF: {ip_str}", "confidence": "medium"})
+                    elif _is_valid_ip(ip_str) and ip_str not in seen:
+                        seen.add(ip_str)
+                        results.append({"ip": ip_str, "source": f"SPF: {ip_str}", "confidence": "medium"})
 
                 # Extract include domains
                 for inc in re.findall(r'include:([^\s]+)', line):
@@ -648,7 +645,7 @@ async def _method_email_infra(domain: str) -> List[dict]:
     return results[:15]
 
 
-async def _method_reverse_dns(domain: str) -> List[dict]:
+async def _method_reverse_dns(domain: str) -> list[dict]:
     """11. Reverse DNS — Scan same /24 subnet of known IPs."""
     results = []
     # Get initial IPs
@@ -673,14 +670,13 @@ async def _method_reverse_dns(domain: str) -> List[dict]:
                 try:
                     _, _, hostnames = socket.gethostbyaddr(candidate_str)
                     for hn in hostnames:
-                        if domain in hn:
-                            if candidate_str not in seen:
-                                seen.add(candidate_str)
-                                results.append({
-                                    "ip": candidate_str,
-                                    "source": f"Reverse DNS /24: {hn}",
-                                    "confidence": "low"
-                                })
+                        if domain in hn and candidate_str not in seen:
+                            seen.add(candidate_str)
+                            results.append({
+                                "ip": candidate_str,
+                                "source": f"Reverse DNS /24: {hn}",
+                                "confidence": "low"
+                            })
                 except (socket.herror, socket.gaierror, OSError):
                     pass
         except ValueError:
@@ -689,7 +685,7 @@ async def _method_reverse_dns(domain: str) -> List[dict]:
     return results[:10]
 
 
-async def _method_asn_lookup(domain: str) -> List[dict]:
+async def _method_asn_lookup(domain: str) -> list[dict]:
     """12. ASN/BGP — Identify network range from ASN."""
     results = []
     ips = _resolve(domain)
@@ -718,7 +714,7 @@ async def _method_asn_lookup(domain: str) -> List[dict]:
     return results[:5]
 
 
-async def _method_wordpress_pingback(domain: str) -> List[dict]:
+async def _method_wordpress_pingback(domain: str) -> list[dict]:
     """13. WordPress XML-RPC pingback — SSRF to get origin IP."""
     results = []
     r = await _curl(f"https://{domain}/xmlrpc.php", timeout=8)
@@ -729,7 +725,7 @@ async def _method_wordpress_pingback(domain: str) -> List[dict]:
     # This is a known technique: pingback.ping with a URL we control
     # The server will make an outbound request, revealing its IP
     # We use a DNS callback service
-    i(f"  WordPress XML-RPC detected — attempting pingback SSRF")
+    i("  WordPress XML-RPC detected — attempting pingback SSRF")
 
     # Generate unique marker for callback
     marker = hashlib.md5(f"{domain}{time.time()}".encode()).hexdigest()[:12]
@@ -756,7 +752,7 @@ async def _method_wordpress_pingback(domain: str) -> List[dict]:
     return results
 
 
-async def _method_http_headers(domain: str) -> List[dict]:
+async def _method_http_headers(domain: str) -> list[dict]:
     """14. HTTP headers leak — Server, X-Powered-By, custom headers."""
     results = []
     r = await _curl(f"https://{domain}/", timeout=8)
@@ -798,7 +794,7 @@ async def _method_http_headers(domain: str) -> List[dict]:
     return results[:10]
 
 
-async def _method_dns_zone_transfer(domain: str) -> List[dict]:
+async def _method_dns_zone_transfer(domain: str) -> list[dict]:
     """15. DNS zone transfer attempt."""
     results = []
     # Get nameservers
@@ -831,7 +827,7 @@ async def _method_dns_zone_transfer(domain: str) -> List[dict]:
     return results[:20]
 
 
-async def _method_subdomain_takeover(domain: str, subs: List[str]) -> List[dict]:
+async def _method_subdomain_takeover(domain: str, subs: list[str]) -> list[dict]:
     """16. Subdomain takeover candidates — dangling CNAMEs."""
     results = []
     for sub in subs[:30]:
@@ -861,7 +857,7 @@ async def _method_subdomain_takeover(domain: str, subs: List[str]) -> List[dict]
     return results[:10]
 
 
-async def _method_leaked_headers(domain: str) -> List[dict]:
+async def _method_leaked_headers(domain: str) -> list[dict]:
     """17. Leaked credentials → email headers → origin."""
     results = []
     # Check for common info leak endpoints
@@ -897,7 +893,7 @@ async def _method_leaked_headers(domain: str) -> List[dict]:
 
 # VERIFICATION ENGINE
 
-async def _verify_candidate(domain: str, ip: str) -> Optional[Dict]:
+async def _verify_candidate(domain: str, ip: str) -> dict | None:
     """
     Multi-layer verification:
     1. Body hash comparison
@@ -952,21 +948,20 @@ async def _verify_candidate(domain: str, ip: str) -> Optional[Dict]:
     return {"ip": ip, "confidence": "suspected", "reason": "origin alive, WAF down?", "method": "fallback"}
 
 
-async def _verify_with_ssl(domain: str, ip: str) -> Optional[Dict]:
+async def _verify_with_ssl(domain: str, ip: str) -> dict | None:
     """Verify by comparing SSL certificates."""
     waf_cert = await asyncio.to_thread(_get_ssl_cert, domain)
     origin_cert = await asyncio.to_thread(_get_ssl_cert_from_ip, ip, domain)
 
-    if waf_cert and origin_cert:
-        if waf_cert["hash"] == origin_cert["hash"]:
-            return {"ip": ip, "confidence": "confirmed", "reason": "SSL cert hash match", "method": "ssl_cert"}
+    if waf_cert and origin_cert and waf_cert["hash"] == origin_cert["hash"]:
+        return {"ip": ip, "confidence": "confirmed", "reason": "SSL cert hash match", "method": "ssl_cert"}
 
     return None
 
 
 # MAIN ENTRY POINT
 
-async def hunt_origin(domain: str, subs: List[str] = None, proxy: str = None) -> Optional[Dict]:
+async def hunt_origin(domain: str, subs: list[str] | None = None, proxy: str | None = None) -> dict | None:
     """
     APT-grade origin IP discovery.
     Runs 17 methods in parallel, then multi-layer verification.

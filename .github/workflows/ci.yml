@@ -28,8 +28,20 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
       - name: Check syntax
         run: python -m compileall -q verd.py core modules reports runners tests
+
+      - name: Lint (ruff — gate config in pyproject)
+        run: python -m ruff check .
+
+      - name: Go engine tests
+        working-directory: go
+        run: go test ./...
 
       - name: Run unit tests (coverage gate via pyproject fail_under)
         run: |

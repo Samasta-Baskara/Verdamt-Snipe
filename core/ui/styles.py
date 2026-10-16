@@ -4,25 +4,26 @@ The import block below doubles as the legacy re-export surface consumed by
 core/ui/__init__ (os, Align, Progress, ...); ruff must not strip it.
 """
 # ruff: noqa: F401
-import os
-import sys
-import time
-import re
-import random
-import threading
 import collections
-from typing import Dict, List, Optional
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskID
-from rich.live import Live
-from rich.layout import Layout
+import os
+import random
+import re
+import sys
+import threading
+import time
+from typing import Dict, List, Optional  # noqa: UP035  (re-exported via core.ui)
+
+from rich import box
 from rich.align import Align
 from rich.columns import Columns
+from rich.console import Console, Group
+from rich.layout import Layout
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
 from rich.rule import Rule
-from rich import box
+from rich.table import Table
+from rich.text import Text
 
 console = Console(highlight=False)
 

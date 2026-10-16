@@ -1,20 +1,20 @@
 """state — verbatim split from poison.py (no logic changes)."""
 import asyncio
-import os
+import os  # noqa: F401  (re-exported via runners.poison.__init__)
 import re
-import subprocess
-import tempfile
+import subprocess  # noqa: F401  (re-exported via runners.poison.__init__)
+import tempfile  # noqa: F401  (re-exported via runners.poison.__init__)
 import time
 from collections import deque
 from statistics import median
-from urllib.parse import urlparse, urlencode
-from typing import Dict, List, Optional, Set, Tuple
-from core.external_tools import _find_tool
-from core.ui import ph, i, w, s, p, G, C, B, N
-from core.proxy_manager import get_global_proxy_manager
-from modules.wordlists import WordlistProvider, PROVIDER
-from runners.shared import inject_query_payload
+from typing import Dict, List, Optional, Set, Tuple  # noqa: F401, UP035  (re-exported)
+from urllib.parse import urlencode, urlparse  # noqa: F401  (urlencode re-exported)
 
+from core.external_tools import _find_tool  # noqa: F401  (re-exported)
+from core.proxy_manager import get_global_proxy_manager
+from core.ui import B, C, G, N, i, p, ph, s, w  # noqa: F401  (re-exported)
+from modules.wordlists import PROVIDER, WordlistProvider  # noqa: F401  (re-exported)
+from runners.shared import inject_query_payload  # noqa: F401  (re-exported)
 
 # Credential wordlists live in modules/wordlists.py (PROVIDER).
 
@@ -79,7 +79,7 @@ def _get_header(headers, name: str) -> str:
     return ""
 
 
-def _cookie_names(raw: str) -> Set[str]:
+def _cookie_names(raw: str) -> set[str]:
     """Cookie names from a (possibly comma-joined) Set-Cookie header.
 
     Splits on a comma only when ``name=`` follows it, so an attribute value
@@ -93,7 +93,7 @@ def _loc_path(location: str) -> str:
     return (urlparse(location or "").path or "/").rstrip("/") or "/"
 
 
-def _parse_finding_param(detail: Optional[str]) -> str:
+def _parse_finding_param(detail: str | None) -> str:
     """Param name out of a finding's detail string.
 
     Two wire formats exist: ``Param: x | ...`` (flood findings) and
@@ -112,7 +112,7 @@ def _parse_finding_param(detail: Optional[str]) -> str:
     return segment.strip()
 
 
-def _exhaust_finding(results: dict, url: str) -> Optional[dict]:
+def _exhaust_finding(results: dict, url: str) -> dict | None:
     """Classify connection-exhaust counters into an honest finding (N2, 2026-10-14).
 
     Only hard ECONNREFUSED proves pool exhaustion. The old bucket also
@@ -193,7 +193,7 @@ def _charge_external(state, n: int, what: str) -> bool:
 
 
 def _classify_login_attempt(status: int, headers, body: str,
-                             baseline: dict) -> Optional[Tuple[str, str]]:
+                             baseline: dict) -> tuple[str, str] | None:
     """Multi-signal login success detection against a failed-login baseline.
 
     Returns (confidence, detail) or None.
@@ -222,11 +222,10 @@ def _classify_login_attempt(status: int, headers, body: str,
         return "suspected", f"New cookies: {','.join(sorted(new_cookies))}"
 
     fail_body = baseline.get("body", "")
-    if fail_body and body and status == 200:
-        if not any(k in body for k in _FAIL_LOGIN_KEYWORDS):
-            len_diff = abs(len(body) - len(fail_body)) / max(len(fail_body), 1)
-            if len_diff > 0.3:
-                return "suspected", f"Body diff {len_diff:.0%} vs failed attempt"
+    if fail_body and body and status == 200 and not any(k in body for k in _FAIL_LOGIN_KEYWORDS):
+        len_diff = abs(len(body) - len(fail_body)) / max(len(fail_body), 1)
+        if len_diff > 0.3:
+            return "suspected", f"Body diff {len_diff:.0%} vs failed attempt"
     return None
 
 
@@ -250,16 +249,16 @@ class PoisonState:
         self.auth_headers = auth_headers or {}
         self.module_flags = {}
 
-        self.findings: List[Dict] = []
-        self.params: Dict[str, List[str]] = {}
-        self.target_wafs: Set[str] = set()
-        self.poisoned_headers: List[str] = []
-        self.origin_ip: Optional[str] = None
+        self.findings: list[dict] = []
+        self.params: dict[str, list[str]] = {}
+        self.target_wafs: set[str] = set()
+        self.poisoned_headers: list[str] = []
+        self.origin_ip: str | None = None
         self.smuggle_confirmed: bool = False
         self.baseline_time: float = 0.0
         # Baseline bodies captured in earlier waves — reused when a wave is
         # too short to fetch fresh ones (avoids empty-baseline FP markers).
-        self._url_baselines: Dict[str, str] = {}
+        self._url_baselines: dict[str, str] = {}
         self.last_phase_duration: float = 0.0
         self.current_concurrency: int = 100
         self.server_strained: bool = False
@@ -268,23 +267,23 @@ class PoisonState:
         self.max_duration: int = 120
 
         # Session rotation tracking
-        self.session_cookies: Dict[str, dict] = {}
+        self.session_cookies: dict[str, dict] = {}
         self._lock = asyncio.Lock()
         self._sync_lock = __import__("threading").Lock()
         # Dedup index: O(1) membership instead of rebuilding the key set on
         # every insertion (that was O(n) per insert, O(n^2) cumulative).
-        self._finding_keys: Set[tuple] = set()
+        self._finding_keys: set[tuple] = set()
         # URLs whose hidden params were already fuzzed this run — the top-N
         # target list is stable, so A1/A3/later waves would repeat identical
         # param discovery without it.
-        self._param_scanned: Set[str] = set()
+        self._param_scanned: set[str] = set()
         # SSRF auto-chain targets already scanned this run — OOB re-fires the
         # same (url,param) every wave (fresh marker), which used to re-run the
         # full 21-26 probe series per wave (N7).
-        self._ssrf_scanned: Set[tuple] = set()
+        self._ssrf_scanned: set[tuple] = set()
         # Sensitive-file URLs already fetched+verified this run — ffuf waves
         # overlap (auth/3xx lists repeat), so never spend the same probe twice.
-        self._verified_paths: Set[str] = set()
+        self._verified_paths: set[str] = set()
         # Adaptive concurrency: rolling window of real per-request latencies
         # plus the timestamp of the last downscale (hysteresis for escalation).
         self.latency_window = deque(maxlen=LATENCY_WINDOW)
@@ -419,7 +418,7 @@ class PoisonState:
         # Each healthy wave: mutate wordlist entries, increase aggression
         self.current_concurrency = min(500, self.current_concurrency + 50)
 
-    def get_high_value_targets(self, limit: int = 10) -> List[str]:
+    def get_high_value_targets(self, limit: int = 10) -> list[str]:
         """Prioritize targets: login pages, APIs, admin panels, config files."""
         priority_patterns = [
             (10, ["login", "signin", "auth", "admin"]),
@@ -434,7 +433,7 @@ class PoisonState:
             url_lower = url.lower()
             score = 0
             for weight, patterns in priority_patterns:
-                if any(p in url_lower for p in patterns):
+                if any(pt in url_lower for pt in patterns):
                     score = weight
                     break
             scored.append((score, url))

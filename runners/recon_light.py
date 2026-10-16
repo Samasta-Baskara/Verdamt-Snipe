@@ -2,7 +2,7 @@ import asyncio
 import re
 from urllib.parse import urljoin
 
-from core.ui import ph, p, w, s, Spinner, G, N, C
+from core.ui import C, G, N, Spinner, p, ph, s, w
 from modules.scanners import AsyncVulnEngine
 from runners.shared import normalize_urls, validate_recon_urls
 
@@ -10,9 +10,9 @@ from runners.shared import normalize_urls, validate_recon_urls
 def _extract_links(html: str, base_url: str) -> list:
     """Extract all same-domain <a href> links from HTML."""
     urls = set()
-    for match in re.finditer(r'href=["\'](https?://[^"\']+)["\']', html, re.I):
+    for match in re.finditer(r'href=["\'](https?://[^"\']+)["\']', html, re.IGNORECASE):
         urls.add(match.group(1).split("#")[0])
-    for match in re.finditer(r'href=["\'](/[^"\']+)["\']', html, re.I):
+    for match in re.finditer(r'href=["\'](/[^"\']+)["\']', html, re.IGNORECASE):
         urls.add(urljoin(base_url, match.group(1)).split("#")[0])
     return list(urls)
 

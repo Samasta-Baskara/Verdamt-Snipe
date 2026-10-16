@@ -5,10 +5,10 @@ across all Playwright security modules (CSRF, PostMessage, Clickjacking, WS, Pro
 """
 
 import asyncio
-from typing import Optional, Dict, Any
-from core.ua import CHROME_WIN
+from typing import Any, Optional
 
 from core.playwright_compat import PLAYWRIGHT_AVAILABLE, async_playwright
+from core.ua import CHROME_WIN
 
 
 class SharedBrowserPool:
@@ -18,11 +18,11 @@ class SharedBrowserPool:
     _lock = asyncio.Lock()
 
     def __init__(self):
-        self._pw: Optional[Any] = None
-        self._browser: Optional[Any] = None
+        self._pw: Any | None = None
+        self._browser: Any | None = None
 
     @classmethod
-    async def get_browser(cls) -> Optional[Any]:
+    async def get_browser(cls) -> Any | None:
         """Get or initialize shared browser instance."""
         if not PLAYWRIGHT_AVAILABLE:
             return None
@@ -53,13 +53,13 @@ class SharedBrowserPool:
             self._browser = None
 
     @classmethod
-    async def new_context(cls, proxy: Optional[str] = None) -> Optional[Any]:
+    async def new_context(cls, proxy: str | None = None) -> Any | None:
         """Create an isolated lightweight BrowserContext from the shared browser pool."""
         browser = await cls.get_browser()
         if not browser:
             return None
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "viewport": {"width": 1280, "height": 720},
             "user_agent": CHROME_WIN,
             "ignore_https_errors": True,

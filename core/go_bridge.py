@@ -3,7 +3,7 @@ import os
 import socket
 import subprocess
 import time
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 SOCKET_PATH = "/tmp/verdamt-engine.sock"
 ENGINE_BINARY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "go", "build", "verdamt-engine"))
@@ -19,8 +19,8 @@ class GoEngineBridge:
 
     def __init__(self, socket_path: str = SOCKET_PATH):
         self.socket_path = socket_path
-        self.proc: Optional[subprocess.Popen] = None
-        self._available: Optional[bool] = None
+        self.proc: subprocess.Popen | None = None
+        self._available: bool | None = None
 
     def is_available(self) -> bool:
         if self._available is not None:
@@ -57,7 +57,7 @@ class GoEngineBridge:
                 cwd=go_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=30
+                timeout=30, check=False,
             )
             if res.returncode == 0 and os.path.exists(ENGINE_BINARY):
                 os.chmod(ENGINE_BINARY, 0o755)
@@ -83,7 +83,7 @@ class GoEngineBridge:
         res = self.send_command({"action": "ping"})
         return res is not None and res.get("status") == "ok"
 
-    def send_command(self, payload: Dict[str, Any], timeout: float = 10.0) -> Optional[Dict[str, Any]]:
+    def send_command(self, payload: dict[str, Any], timeout: float = 10.0) -> dict[str, Any] | None:
         if not os.path.exists(self.socket_path):
             self._start_daemon()
             if not os.path.exists(self.socket_path):
@@ -116,9 +116,9 @@ class GoEngineBridge:
         except Exception:
             return None
 
-    def probe_batch(self, targets: List[str], headers: Dict[str, str] = None,
+    def probe_batch(self, targets: list[str], headers: dict[str, str] | None = None,
                     concurrency: int = 100, timeout: int = 4,
-                    delay_ms: int = 0, jitter_ms: int = 0) -> Optional[List[Dict[str, Any]]]:
+                    delay_ms: int = 0, jitter_ms: int = 0) -> list[dict[str, Any]] | None:
         if not self.is_available():
             return None
 
@@ -137,7 +137,7 @@ class GoEngineBridge:
             return resp.get("results", [])
         return None
 
-    def js_scan_batch(self, files: List[Dict[str, Any]], batch_size: int = 50) -> Optional[Dict[str, Any]]:
+    def js_scan_batch(self, files: list[dict[str, Any]], batch_size: int = 50) -> dict[str, Any] | None:
         """Send downloaded JS files to Go Engine for multi-core zero-copy regex extraction.
         
         Args:
@@ -167,7 +167,7 @@ class GoEngineBridge:
 
         return {
             "findings": all_findings,
-            "endpoints": sorted(list(all_endpoints))
+            "endpoints": sorted(all_endpoints)
         }
 
     def close(self):

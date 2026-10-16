@@ -13,7 +13,6 @@ Usage:
 import json
 import socket
 import subprocess
-from typing import List
 from urllib.parse import quote
 
 # DoH providers (order = priority)
@@ -24,7 +23,7 @@ DOH_PROVIDERS = [
 ]
 
 
-def doh_resolve(domain: str, proxy: str = None) -> List[str]:
+def doh_resolve(domain: str, proxy: str | None = None) -> list[str]:
     """Resolve domain to IPs via DNS-over-HTTPS (sync).
     
     Prevents DNS query from leaking to ISP/local resolver.
@@ -46,7 +45,7 @@ def doh_resolve(domain: str, proxy: str = None) -> List[str]:
 
             result = subprocess.run(
                 cmd,
-                capture_output=True, text=True, timeout=8,
+                capture_output=True, text=True, timeout=8, check=False,
             )
             if result.returncode != 0 or not result.stdout.strip():
                 continue

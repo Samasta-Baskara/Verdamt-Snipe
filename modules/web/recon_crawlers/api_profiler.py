@@ -1,15 +1,14 @@
+import asyncio
 import json
 import re
-import asyncio
 from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 from core.ui import C, G, N, R, W, draw_table, i, p, ph
 
-
 AUTH_DENY_RE = re.compile(
     r"unauthorized|forbidden|access denied|not authenticated|login required|invalid token|missing token",
-    re.I,
+    re.IGNORECASE,
 )
 
 SENSITIVE_KEYS = {

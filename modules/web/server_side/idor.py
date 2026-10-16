@@ -1,13 +1,14 @@
 
 """IDOR Mass Enumeration — detect accessible user data via ID iteration."""
 
-import re
 import asyncio
-from typing import Dict, List
+import re
+
 from core.client import AsyncNetworkEngine
 from core.ui import w
 
-async def scan_idor(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:
+
+async def scan_idor(url: str, engine: AsyncNetworkEngine, session_manager=None) -> list[dict]:
     """Enumerate numeric IDs and check for accessible data."""
     findings = []
 

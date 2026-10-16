@@ -2,7 +2,6 @@
 OWASP Top 10 (2021) Mapper — Maps Verdamt-Snipe vulnerability types to OWASP categories.
 """
 
-from typing import Dict, List, Optional
 
 OWASP_TOP_10 = {
     "A01": {
@@ -125,7 +124,7 @@ _TYPE_TO_OWASP = {
 }
 
 
-def map_finding_to_owasp(finding_type: str) -> Optional[Dict]:
+def map_finding_to_owasp(finding_type: str) -> dict | None:
     """
     Maps a Verdamt-Snipe finding type string to its OWASP Top 10 category.
     Returns dict with 'id', 'name', 'desc', 'cwes' or None if unmapped.
@@ -151,7 +150,7 @@ def map_finding_to_owasp(finding_type: str) -> Optional[Dict]:
     return None
 
 
-def get_owasp_summary(findings: List[Dict]) -> Dict[str, Dict]:
+def get_owasp_summary(findings: list[dict]) -> dict[str, dict]:
     """
     Aggregates findings by OWASP Top 10 category.
     Returns: { "A01": { "name": ..., "desc": ..., "count": N, "findings": [...] }, ... }

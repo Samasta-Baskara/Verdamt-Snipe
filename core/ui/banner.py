@@ -1,16 +1,15 @@
 """banner — verbatim split from ui.py (no logic changes)."""
 import os
+import random
 import sys
 import time
-import random
-from typing import Dict, List
-from rich.panel import Panel
-from rich.text import Text
-from rich.rule import Rule
+
 from rich import box
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.text import Text
 
 from .styles import B, C, M, N, O, W, console, strip_ansi
-
 
 _BANNER_LINES = [
     "  " + chr(9556) + chr(9552)*29 + chr(9559),
@@ -135,7 +134,7 @@ _HELP_EXAMPLES = [
     "snipe example.com --resume                continue last scan",
 ]
 
-_PIPELINE_STAGES_BY_MODE: Dict[str, List[Dict[str, str]]] = {
+_PIPELINE_STAGES_BY_MODE: dict[str, list[dict[str, str]]] = {
     "RECON_LIGHT": [
         {"name": "Surface Scan", "status": "pending", "detail": ""},
         {"name": "Subfinder", "status": "pending", "detail": ""},

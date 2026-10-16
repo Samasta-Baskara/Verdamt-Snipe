@@ -7,8 +7,6 @@ these names so its public API is unchanged.
 import asyncio
 import enum
 import time
-from typing import Dict
-
 
 # Adaptive Pacing (AIMD controller)
 
@@ -65,7 +63,7 @@ class CircuitBreaker:
         self.cooldown_base = cooldown_base
         self.cooldown_max = cooldown_max
         self.half_open_probe = half_open_probe
-        self._hosts: Dict[str, dict] = {}
+        self._hosts: dict[str, dict] = {}
 
     def _get_host(self, hostname: str) -> dict:
         if hostname not in self._hosts:
@@ -159,7 +157,7 @@ class CircuitBreaker:
             return 0.0
         return max(0.0, h["cooldown_until"] - time.time())
 
-    def reset(self, hostname: str = None):
+    def reset(self, hostname: str | None = None):
         """Reset circuit breaker state."""
         if hostname:
             self._hosts.pop(hostname, None)

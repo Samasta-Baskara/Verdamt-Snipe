@@ -1,14 +1,15 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
+import random
 import re
 import time
-import random
 from urllib.parse import quote, urlparse
-from typing import List, Dict, Set
+
 from core.client import AsyncNetworkEngine
-from core.ui import ph, i, p, w, draw_table, Spinner, G, Y, R, N, GY, W, C, B
+from core.ui import GY, B, C, G, N, R, Spinner, W, Y, draw_table, i, p, ph, w
 
 # GOOGLE DORK TEMPLATES
 
@@ -84,7 +85,7 @@ DORK_TEMPLATES = [
 ]
 
 # User agents that look like normal browsers (central pool: core/ua.py)
-from core.ua import SEARCH_UAS  # noqa: F401  (re-exported for tests/legacy)
+from core.ua import SEARCH_UAS
 
 
 class GoogleDorker:
@@ -110,14 +111,14 @@ class GoogleDorker:
         self.budget_seconds = budget_seconds
         self.engine = engine  # None = private engine created in run()
         self.dorks = [t.format(domain=domain) for t in DORK_TEMPLATES]
-        self.findings: List[Dict] = []
-        self.discovered_urls: Set[str] = set()
+        self.findings: list[dict] = []
+        self.discovered_urls: set[str] = set()
         self.google_blocked = False
         self.ddg_blocked = False
         self.net_errors = 0
         self.manual_dork_path: str = ""
 
-    async def _send(self, url: str, headers: Dict = None, timeout: float = 6) -> Dict:
+    async def _send(self, url: str, headers: dict | None = None, timeout: float = 6) -> dict:
         return await self.engine.ahttp_send(url, headers=headers, timeout=timeout)
 
     @staticmethod
@@ -128,7 +129,7 @@ class GoogleDorker:
         low = (body or "").lower()
         return any(m in low for m in GoogleDorker.BLOCK_MARKERS)
 
-    async def _search_google(self, dork: str) -> List[str]:
+    async def _search_google(self, dork: str) -> list[str]:
         """Scrape Google search results for a dork query."""
         urls = []
         try:
@@ -165,7 +166,7 @@ class GoogleDorker:
             self.net_errors += 1
         return urls
 
-    async def _search_duckduckgo(self, dork: str) -> List[str]:
+    async def _search_duckduckgo(self, dork: str) -> list[str]:
         """Fallback: scrape DuckDuckGo (less aggressive anti-bot)."""
         urls = []
         try:
@@ -200,14 +201,13 @@ class GoogleDorker:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(f"# Verdammt-Snipe dork queries for {self.domain}\n")
                 fh.write("# Scraping was blocked/unavailable — run these manually.\n")
-                for dork in self.dorks:
-                    fh.write(dork + "\n")
+                fh.writelines(dork + "\n" for dork in self.dorks)
             self.manual_dork_path = path
         except Exception:
             self.manual_dork_path = ""
         return path
 
-    async def run(self) -> Dict:
+    async def run(self) -> dict:
         """Execute dorking — returns discovered URLs and dork results."""
         ph("GOOGLE DORKING: Passive Intelligence")
         i(f"Target: {W}{self.domain}{N}")
@@ -222,7 +222,7 @@ class GoogleDorker:
             if private_engine:
                 await self.engine.close()
 
-    async def _run_inner(self) -> Dict:
+    async def _run_inner(self) -> dict:
         # Phase 1: Try automated scraping (bounded by budget + block state)
         deadline = time.monotonic() + self.budget_seconds
         scrape_count = 0

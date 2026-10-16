@@ -5,8 +5,6 @@ import re
 import shlex
 import uuid
 from datetime import datetime
-from typing import List, Dict
-
 
 OUTPUT_DIR = "outputs"
 
@@ -108,7 +106,7 @@ for _info_type in ["email", "internal_ip"]:
     CVSS_DB[f"js_secret_{_info_type}"] = {"s":3.7,"v":"Low","vec":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"}
 
 
-def finding_cvss(finding: Dict) -> Dict:
+def finding_cvss(finding: dict) -> dict:
     default = CVSS_DB.get(finding.get("type"), {"s": 0, "v": "Info", "vec": "N/A"})
     # Coerce score to float: a producer that leaves cvss_score=None or a
     # string used to crash the Phase 5 sort (None < int) AFTER verification
@@ -133,7 +131,7 @@ class PoCGenerator:
         return shlex.quote(value or "")
 
     @staticmethod
-    def generate_poc(finding: Dict) -> Dict[str, str]:
+    def generate_poc(finding: dict) -> dict[str, str]:
         """
         Returns a dict:
         {
@@ -275,7 +273,7 @@ setTimeout(() => {{
         }
 
     @staticmethod
-    def generate_steps(finding: Dict, tech_stack: List[str] = None) -> List[Dict]:
+    def generate_steps(finding: dict, tech_stack: list[str] | None = None) -> list[dict]:
         url = finding.get("url", "")
         ftype = finding.get("type", "")
         detail = finding.get("detail", "")
@@ -483,8 +481,8 @@ setTimeout(() => {{
 
 
 class ReportEngine:
-    def __init__(self, target: str, findings: List[Dict], services: List[Dict],
-                 subs: List[str], urls: List[str], duration: float, waf_detected: List[str],
+    def __init__(self, target: str, findings: list[dict], services: list[dict],
+                 subs: list[str], urls: list[str], duration: float, waf_detected: list[str],
                  version: str, author: str, mode: str = "Unknown"):
         self.target = target
         self.findings = [f for f in findings if finding_cvss(f)["v"] != "Info"]
@@ -546,7 +544,7 @@ class ReportEngine:
             return "Low"
         return "Informational"
 
-    def _svg_donut_chart(self, counts: Dict[str, int]) -> str:
+    def _svg_donut_chart(self, counts: dict[str, int]) -> str:
         """Generate SVG donut chart for severity distribution."""
         colors = {"Critical": "#ef4444", "High": "#f97316", "Medium": "#eab308", "Low": "#22c55e", "Info": "#64748b"}
         total = sum(counts.values())
@@ -612,7 +610,7 @@ class ReportEngine:
             <text x="100" y="115" text-anchor="middle" fill="#a1a1aa" font-family="Inter" font-size="10" letter-spacing="2">{label}</text>
         </svg>'''
 
-    def _risk_heatmap(self, counts: Dict[str, int]) -> str:
+    def _risk_heatmap(self, counts: dict[str, int]) -> str:
         """Generate horizontal stacked risk bar."""
         colors = {"Critical": "#ef4444", "High": "#f97316", "Medium": "#eab308", "Low": "#22c55e", "Info": "#64748b"}
         total = sum(counts.values())
@@ -1184,7 +1182,7 @@ class ReportEngine:
         function scrollToTop() { window.scrollTo({ top: 0, behavior: 'smooth' }); }
     </script>"""
 
-        cover_display = "flex" if not for_pdf else "flex"
+        cover_display = "flex"
         all_pages_active = for_pdf
 
         return f"""<!DOCTYPE html>
@@ -1461,11 +1459,12 @@ class ReportEngine:
         return pdf_path if os.path.exists(pdf_path) else ""
 
     def print_summary(self):
-        from core.ui import console
+        from rich.console import Group
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
-        from rich.console import Group
+
+        from core.ui import console
 
         counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
         for f in self.findings:
@@ -1559,15 +1558,15 @@ class ReportEngine:
         if os.path.exists(html_path):
             rpt_lines.append(f"  [dim]├─►[/dim] [bold cyan]HTML Report:[/] {html_path}")
         else:
-            rpt_lines.append(f"  [dim]├─►[/dim] [yellow][!] HTML report missing[/yellow]")
+            rpt_lines.append("  [dim]├─►[/dim] [yellow][!] HTML report missing[/yellow]")
 
         if os.path.exists(pdf_path):
             rpt_lines.append(f"  [dim]└─►[/dim] [bold cyan]PDF Report:[/]  {pdf_path}")
         else:
             if not WEASYPRINT_AVAILABLE:
-                rpt_lines.append(f"  [dim]└─►[/dim] [dim yellow][!] PDF report skipped (WeasyPrint library missing)[/dim yellow]")
+                rpt_lines.append("  [dim]└─►[/dim] [dim yellow][!] PDF report skipped (WeasyPrint library missing)[/dim yellow]")
             else:
-                rpt_lines.append(f"  [dim]└─►[/dim] [yellow][!] PDF report rendering failed[/yellow]")
+                rpt_lines.append("  [dim]└─►[/dim] [yellow][!] PDF report rendering failed[/yellow]")
 
         console.print(Panel("\n".join(rpt_lines), border_style="dim cyan", padding=(0, 1)))
         console.print()

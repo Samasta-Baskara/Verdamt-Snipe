@@ -4,14 +4,13 @@ Split verbatim from the old single-file core/ui/tables.py (no logic
 changes). `console` is intentionally NOT imported by name here — every
 renderer reads core.ui.styles.console late so tests can redirect it.
 """
-from typing import List, Optional, Tuple
+
+from rich.cells import cell_len
+from rich.text import Text
 
 from core.ui import styles
 
-from rich.text import Text
-from rich.cells import cell_len
-
-from ..styles import (D_BG, D_PANEL, D_EMERALD, D_TEAL, D_GOLD, D_TEXT, D_BORDER)
+from ..styles import D_BG, D_BORDER, D_EMERALD, D_GOLD, D_PANEL, D_TEAL, D_TEXT
 
 
 def _blank(width: int, background: str = D_BG) -> Text:
@@ -60,7 +59,7 @@ def _fit(t: Text, width: int, background: str = D_PANEL) -> Text:
     return t
 
 
-def _take_cells(s: str, n: int) -> Tuple[str, str]:
+def _take_cells(s: str, n: int) -> tuple[str, str]:
     out = ""
     acc = 0
     for ch in s:
@@ -72,14 +71,14 @@ def _take_cells(s: str, n: int) -> Tuple[str, str]:
     return out, s[len(out):]
 
 
-def _wrap(t: Text, width: int) -> List[Text]:
+def _wrap(t: Text, width: int) -> list[Text]:
     """Word-wrap a single-line styled Text into lines of at most `width` cells."""
     if width <= 0:
         return [Text("", end="")]
     if cell_len(t.plain) <= width:
         return [t]
 
-    tokens: List[Tuple[str, object]] = []
+    tokens: list[tuple[str, object]] = []
     for seg in t.render(styles.console):
         if seg.control or not seg.text:
             continue
@@ -90,7 +89,7 @@ def _wrap(t: Text, width: int) -> List[Text]:
             if part:
                 tokens.append((part, seg.style))
 
-    lines: List[Text] = []
+    lines: list[Text] = []
     cur = Text(no_wrap=True, end="")
     cur_w = 0
 
@@ -124,8 +123,8 @@ def _wrap(t: Text, width: int) -> List[Text]:
     return lines
 
 
-def _center_height(lines: List[Text], height: int, width: int,
-                   background: str = D_PANEL) -> List[Text]:
+def _center_height(lines: list[Text], height: int, width: int,
+                   background: str = D_PANEL) -> list[Text]:
     """Vertically centre a block inside `height` rows (pads both sides)."""
     if len(lines) >= height:
         return lines[:height]
@@ -134,16 +133,16 @@ def _center_height(lines: List[Text], height: int, width: int,
                        height, width, background)
 
 
-def _fit_height(lines: List[Text], height: int, width: int,
-                background: str = D_PANEL) -> List[Text]:
+def _fit_height(lines: list[Text], height: int, width: int,
+                background: str = D_PANEL) -> list[Text]:
     if len(lines) > height:
         return lines[:height]
     return lines + [_blank(width, background) for _ in range(height - len(lines))]
 
 
-def _frame(lines: List[Text], width: int, height: int, title: str = "",
-           badge: Optional[Text] = None, background: str = D_PANEL,
-           border: str = D_BORDER, pad_x: int = 1) -> List[Text]:
+def _frame(lines: list[Text], width: int, height: int, title: str = "",
+           badge: Text | None = None, background: str = D_PANEL,
+           border: str = D_BORDER, pad_x: int = 1) -> list[Text]:
     """Wrap content in a rounded panel occupying exactly `height` lines."""
     if height <= 0:
         return []
@@ -159,7 +158,7 @@ def _frame(lines: List[Text], width: int, height: int, title: str = "",
     body = [_fit(ln, content_w, background) for ln in lines[:max(0, height - 2)]]
     body = _fit_height(body, height - 2, content_w, background)
 
-    out: List[Text] = []
+    out: list[Text] = []
 
     # ── top border: title left, status badge right ──
     top = Text(no_wrap=True, end="")
@@ -216,10 +215,10 @@ def _frame(lines: List[Text], width: int, height: int, title: str = "",
     return out
 
 
-def _hstack(left: List[Text], right: List[Text], left_w: int, right_w: int,
-            gap: int) -> List[Text]:
+def _hstack(left: list[Text], right: list[Text], left_w: int, right_w: int,
+            gap: int) -> list[Text]:
     n = max(len(left), len(right))
-    out: List[Text] = []
+    out: list[Text] = []
     g = " " * gap if gap > 0 else ""
     for i in range(n):
         row = Text(no_wrap=True, end="")

@@ -1,13 +1,12 @@
 """Operational policy enforced before scan requests leave the process."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from threading import Lock
-from typing import Dict, Iterable, Optional
 from urllib.parse import urljoin, urlparse, urlunparse
 
-from core.scope import ScopeGuard
 from core.audit import AuditLogger
-
+from core.scope import ScopeGuard
 
 PASSIVE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 SUPPORTED_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"})
@@ -35,11 +34,11 @@ class ScanPolicy:
         root_host: str,
         *,
         include_subdomains: bool = True,
-        allowed_hosts: Optional[Iterable[str]] = None,
-        allowed_ports: Optional[Iterable[int]] = None,
+        allowed_hosts: Iterable[str] | None = None,
+        allowed_ports: Iterable[int] | None = None,
         mode: str = "active",
-        max_requests: Optional[int] = 30_000,
-        max_concurrency: Optional[int] = 100,
+        max_requests: int | None = 30_000,
+        max_concurrency: int | None = 100,
         max_timeout: float = 30.0,
         dry_run: bool = False,
     ):
@@ -103,7 +102,7 @@ class ScanPolicy:
             return self._requests_sent
 
     @property
-    def requests_remaining(self) -> Optional[int]:
+    def requests_remaining(self) -> int | None:
         if self.max_requests is None:
             return None
         with self._lock:
@@ -148,7 +147,7 @@ class ScanPolicy:
     def allows_url(self, url: str) -> bool:
         return self.check_url(url).allowed
 
-    def canonical_url(self, url: str, base_url: str = None) -> str:
+    def canonical_url(self, url: str, base_url: str | None = None) -> str:
         candidate = str(url or "").strip()
         if base_url:
             candidate = urljoin(base_url, candidate)
@@ -186,7 +185,7 @@ class ScanPolicy:
             "",
         ))
 
-    def filter_urls(self, urls: Iterable[str], base_url: str = None) -> list[str]:
+    def filter_urls(self, urls: Iterable[str], base_url: str | None = None) -> list[str]:
         kept = set()
         for url in urls or []:
             canonical = self.canonical_url(url, base_url=base_url)
@@ -203,7 +202,7 @@ class ScanPolicy:
                     reason=f"filter_urls:{reason}", dry_run=self.dry_run)
         return sorted(kept)
 
-    def clamp_timeout(self, timeout: Optional[float]) -> float:
+    def clamp_timeout(self, timeout: float | None) -> float:
         """Return a timeout that cannot exceed this scan's policy budget."""
         if timeout is None:
             return self.max_timeout
@@ -220,9 +219,9 @@ class ScanPolicy:
         return PolicyDecision(True)
 
     def authorize_request(self, url: str, method: str = "GET",
-                          headers: Optional[Dict] = None,
-                          body: Optional[str] = None,
-                          trace_id: Optional[str] = None) -> PolicyDecision:
+                          headers: dict | None = None,
+                          body: str | None = None,
+                          trace_id: str | None = None) -> PolicyDecision:
         """Authorize an outgoing request; audit entry carries headers/body so
         denied AND allowed requests stay curl-replayable from the .jsonl."""
         decision = self.check_url(url)
@@ -266,7 +265,7 @@ class ScanPolicy:
         return PolicyDecision(True)
 
     def refund_request(self, reason: str = "", url: str = "",
-                       trace_id: Optional[str] = None) -> None:
+                       trace_id: str | None = None) -> None:
         """Return one budget unit when an authorized request never dispatches.
 
         Covers dry-run simulation, host-backoff, concurrency timeout and

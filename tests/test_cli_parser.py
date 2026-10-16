@@ -9,14 +9,14 @@ import tempfile
 import unittest
 
 from verd import (
-    parse_target,
-    parse_scan_args,
-    parse_mode,
-    parse_cli_headers,
-    parse_scan_policy_options,
-    _flag_value,
-    _VALUE_FLAGS,
     _SHORT_ALIASES,
+    _VALUE_FLAGS,
+    _flag_value,
+    parse_cli_headers,
+    parse_mode,
+    parse_scan_args,
+    parse_scan_policy_options,
+    parse_target,
 )
 
 
@@ -57,7 +57,7 @@ class TestParseScanArgs(unittest.TestCase):
             (None, ["--resume", "outputs/x.state"], "outputs/x.state"))
 
     def test_resume_mid_flags_with_target(self):
-        target, flags, resume = parse_scan_args(
+        target, _flags, resume = parse_scan_args(
             ["verd.py", "target.com", "--resume", "out.state"])
         self.assertEqual(target, "target.com")
         self.assertEqual(resume, "out.state")

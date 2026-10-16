@@ -1,11 +1,12 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
 from urllib.parse import urlencode
-from typing import List, Dict, Set, Optional
+
 from core.client import AsyncNetworkEngine
-from core.ui import ph, i, p, w, draw_table, Spinner, G, N, W, B
+from core.ui import B, G, N, Spinner, W, draw_table, i, p, ph, w
 
 # EMBEDDED WORDLIST — 500+ high-value params from Arjun/ParamSpider/SecLists
 PARAM_WORDLIST = [
@@ -116,16 +117,16 @@ class ParamBruteforcer:
     keep working without duplicating the diffing implementation.
     """
 
-    def __init__(self, url: str, wordlist: List[str] = None, threads: int = 15,
+    def __init__(self, url: str, wordlist: list[str] | None = None, threads: int = 15,
                  chunk_size: int = 10, policy=None):
         self.url = url.split("?")[0]  # Strip existing params
         self.wordlist = wordlist or PARAM_WORDLIST
         self.threads = threads
         self.chunk_size = chunk_size  # Params per request for bulk phase
         self.policy = policy
-        self.found: Set[str] = set()
+        self.found: set[str] = set()
 
-    async def _run_inner(self) -> List[str]:
+    async def _run_inner(self) -> list[str]:
         engine = AsyncNetworkEngine(policy=self.policy)
         try:
             return await AsyncParamBruteforcer(
@@ -138,7 +139,7 @@ class ParamBruteforcer:
         finally:
             await engine.close()
 
-    def run(self) -> List[str]:
+    def run(self) -> list[str]:
         self.found = set(asyncio.run(self._run_inner()))
         return sorted(self.found)
 
@@ -150,7 +151,7 @@ class AsyncParamBruteforcer:
         self,
         url: str,
         network_engine: AsyncNetworkEngine,
-        wordlist: List[str] = None,
+        wordlist: list[str] | None = None,
         concurrency: int = 25,
         chunk_size: int = 10,
         session_manager=None,
@@ -161,12 +162,12 @@ class AsyncParamBruteforcer:
         self.concurrency = concurrency
         self.chunk_size = chunk_size
         self.session_manager = session_manager
-        self.found: Set[str] = set()
+        self.found: set[str] = set()
         self.baseline = None
         self.rate_limited = 0
         self._sem = asyncio.Semaphore(concurrency)
 
-    async def _send(self, url: str, timeout: int = 8) -> Dict:
+    async def _send(self, url: str, timeout: int = 8) -> dict:
         async with self._sem:
             return await self.engine.ahttp_send(
                 url,
@@ -174,7 +175,7 @@ class AsyncParamBruteforcer:
                 state_context=self.session_manager,
             )
 
-    async def _get_baseline(self) -> Dict:
+    async def _get_baseline(self) -> dict:
         r = await self._send(self.url, timeout=10)
         body = r.get("body") or ""
         return {
@@ -184,7 +185,7 @@ class AsyncParamBruteforcer:
             "headers": set((r.get("headers") or {}).keys()),
         }
 
-    def _is_different(self, response: Dict) -> bool:
+    def _is_different(self, response: dict) -> bool:
         if not self.baseline:
             return False
 
@@ -204,7 +205,7 @@ class AsyncParamBruteforcer:
         new_headers = set((response.get("headers") or {}).keys()) - self.baseline["headers"]
         return bool(new_headers)
 
-    async def _test_single(self, param: str) -> Optional[str]:
+    async def _test_single(self, param: str) -> str | None:
         target = f"{self.url}?{urlencode({param: 'FUZZ'})}"
         r = await self._send(target)
         if r.get("status") == 429:
@@ -214,7 +215,7 @@ class AsyncParamBruteforcer:
             return param
         return None
 
-    async def _test_chunk(self, params: List[str]) -> List[str]:
+    async def _test_chunk(self, params: list[str]) -> list[str]:
         query = "&".join(f"{p}=FUZZ{i}" for i, p in enumerate(params))
         target = f"{self.url}?{query}"
         r = await self._send(target)
@@ -227,7 +228,7 @@ class AsyncParamBruteforcer:
         hits = await asyncio.gather(*(self._test_single(param) for param in params))
         return [h for h in hits if h]
 
-    async def run(self) -> List[str]:
+    async def run(self) -> list[str]:
         ph("ARJUN ENGINE: Async Hidden Parameter Discovery")
         i(f"Target: {W}{self.url}{N}")
         i(f"Wordlist: {W}{len(self.wordlist)}{N} params | Chunk size: {self.chunk_size} | Concurrency: {self.concurrency}")

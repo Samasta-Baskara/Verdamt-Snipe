@@ -15,9 +15,7 @@ Usage:
 
 import asyncio
 import random
-from typing import Dict, List
-from urllib.parse import urlparse, urljoin
-
+from urllib.parse import urljoin, urlparse
 
 # Common "normal" paths that real users visit
 BENIGN_PATHS = [
@@ -51,7 +49,7 @@ class CamouflageBrowser:
     making the scanner's IP look like a legitimate user in target's logs.
     """
 
-    def __init__(self, engine, proxy: str = None):
+    def __init__(self, engine, proxy: str | None = None):
         self.engine = engine
         self.proxy = proxy
         self.visited = []
@@ -62,7 +60,7 @@ class CamouflageBrowser:
         base_url: str,
         num_visits: int = 3,
         delay_range: tuple = (1.0, 3.0),
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Visit normal pages to establish a "human" session.
         
         Args:
@@ -125,11 +123,11 @@ class CamouflageBrowser:
 
         return results
 
-    def _extract_links(self, body: str, origin: str) -> List[str]:
+    def _extract_links(self, body: str, origin: str) -> list[str]:
         """Extract same-origin links from HTML body."""
         import re
         links = []
-        for match in re.finditer(r'href=["\']([^"\']+)["\']', body, re.I):
+        for match in re.finditer(r'href=["\']([^"\']+)["\']', body, re.IGNORECASE):
             href = match.group(1)
             if href.startswith("/"):
                 links.append(urljoin(origin, href))

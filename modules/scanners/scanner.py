@@ -1,13 +1,13 @@
-import re
 import asyncio
 import ipaddress
-from typing import List, Dict, Optional
-from urllib.parse import quote, urlencode, urlsplit, urlunsplit, parse_qsl, urlparse
+import re
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urlunsplit
+
 from core.audit import EVIDENCE_CAP
 from core.client import AsyncNetworkEngine
+from core.http_client import thttp
 from core.ui import C, N, Y, i, s, w
 from modules.auth.bypass import WAFBypass
-from core.http_client import thttp
 from runners.shared import inject_query_payload
 
 
@@ -95,7 +95,7 @@ class SmartPayloadGenerator:
     ]
 
     @staticmethod
-    def generate(vuln_type: str, bypass: bool = True) -> List[str]:
+    def generate(vuln_type: str, bypass: bool = True) -> list[str]:
         if vuln_type == "xss":
             base = SmartPayloadGenerator.XSS_BASE
         elif vuln_type == "sqli":
@@ -131,7 +131,7 @@ class ParamClassifier:
     """Classify URL parameter names and dispatch appropriate check methods."""
 
     @staticmethod
-    def get_checks(engine, url: str, param: str) -> List:
+    def get_checks(engine, url: str, param: str) -> list:
         checks = []
         param_lower = param.lower()
 
@@ -191,8 +191,8 @@ class AsyncVulnEngine:
         self.allow_post = allow_post
         self._sem = asyncio.Semaphore(concurrency)
 
-    async def _send(self, url: str, method: str = "GET", headers: dict = None,
-                    data=None, timeout: int = 10, bypass: bool = None) -> Dict:
+    async def _send(self, url: str, method: str = "GET", headers: dict | None = None,
+                    data=None, timeout: int = 10, bypass: bool | None = None) -> dict:
         async with self._sem:
             hostname = urlparse(url).hostname or "unknown"
             req_headers = dict(headers or {})
@@ -240,7 +240,7 @@ class AsyncVulnEngine:
             )
             return result
 
-    async def xss(self, url: str, param: str) -> Optional[Dict]:
+    async def xss(self, url: str, param: str) -> dict | None:
         payloads = SmartPayloadGenerator.generate("xss", self.bypass)[:12]
         triggers = [r"alert\(1\)", r"prompt\(1\)", r"confirm\(1\)", r"onerror=", r"onload=", r"onfocus=", r"ontoggle="]
         baseline = await self._send(url)
@@ -254,7 +254,7 @@ class AsyncVulnEngine:
             if isinstance(r, dict) and r.get("status", 0) > 0 and r.get("body"):
                 body = r["body"]
                 for trigger in triggers:
-                    if re.search(trigger, body, re.I) and not re.search(trigger, baseline_body, re.I):
+                    if re.search(trigger, body, re.IGNORECASE) and not re.search(trigger, baseline_body, re.IGNORECASE):
                         if "&lt;script" in body.lower() or "&lt;img" in body.lower() or "&lt;svg" in body.lower():
                             continue
                         if payload.startswith("<") and payload[:4].lower() not in body.lower():
@@ -265,7 +265,7 @@ class AsyncVulnEngine:
                                 "confidence": "confirmed"}
         return None
 
-    async def sqli(self, url: str, param: str) -> Optional[Dict]:
+    async def sqli(self, url: str, param: str) -> dict | None:
         payloads = SmartPayloadGenerator.generate("sqli", self.bypass)[:10]
         error_patterns = [r"sql syntax", r"unclosed quotation", r"warning: mysql", r"sqlite_error", r"postgresql.*error", r"ora-[0-9]{5}"]
         
@@ -283,7 +283,7 @@ class AsyncVulnEngine:
         for (target, payload), r in zip(targets, responses):
             if isinstance(r, dict) and r.get("status", 0) > 0:
                 body = r.get("body") or ""
-                if any(re.search(ep, body, re.I) and not re.search(ep, baseline_body, re.I) for ep in error_patterns):
+                if any(re.search(ep, body, re.IGNORECASE) and not re.search(ep, baseline_body, re.IGNORECASE) for ep in error_patterns):
                     s(f"SQLi (Error-based) CONFIRMED on {Y}{param}{N} with payload: {C}{payload}{N}")
                     return {"type": "sqli_error", "title": "SQL Injection (Error-based)", "url": target,
                             "detail": f"Param: {param}", "bypass": "enabled" if self.bypass else "none",
@@ -308,7 +308,7 @@ class AsyncVulnEngine:
                             "confidence": "confirmed"}
         return None
 
-    async def lfi(self, url: str, param: str) -> Optional[Dict]:
+    async def lfi(self, url: str, param: str) -> dict | None:
         indicators = [r"root:x:0:0:", r"daemon:x:", r"bin:x:", r"\[fonts\]"]
         payloads = SmartPayloadGenerator.generate("lfi", self.bypass)[:10]
         targets = [(inject_query_payload(url, param, p), p) for p in payloads]
@@ -318,13 +318,13 @@ class AsyncVulnEngine:
         for (target, payload), r in zip(targets, responses):
             if isinstance(r, dict) and r.get("status", 0) > 0:
                 body = r.get("body") or ""
-                if any(re.search(ind, body, re.I) for ind in indicators):
+                if any(re.search(ind, body, re.IGNORECASE) for ind in indicators):
                     return {"type": "lfi", "title": "Local File Inclusion (LFI)", "url": target,
                             "detail": f"Param: {param}", "bypass": "enabled" if self.bypass else "none",
                             "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def rce(self, url: str, param: str) -> Optional[Dict]:
+    async def rce(self, url: str, param: str) -> dict | None:
         indicators = [r"uid=\d+\(\w+\)", r"gid=\d+\(\w+\)", r"www-data"]
         payloads = SmartPayloadGenerator.generate("rce", self.bypass)[:12]
         targets = [(inject_query_payload(url, param, p), p) for p in payloads]
@@ -334,13 +334,13 @@ class AsyncVulnEngine:
         for (target, payload), r in zip(targets, responses):
             if isinstance(r, dict) and r.get("status", 0) > 0:
                 body = r.get("body") or ""
-                if any(re.search(ind, body, re.I) for ind in indicators):
+                if any(re.search(ind, body, re.IGNORECASE) for ind in indicators):
                     return {"type": "rce", "title": "RCE / Command Injection", "url": target,
                             "detail": f"Param: {param}", "bypass": "enabled" if self.bypass else "none",
                             "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def ssrf(self, url: str, param: str) -> Optional[Dict]:
+    async def ssrf(self, url: str, param: str) -> dict | None:
         test_urls = [
             ("http://169.254.169.254/latest/meta-data/", ["meta-data", "ami-id", "instance-id"]),
             ("http://metadata.google.internal/computeMetadata/v1/instance/", ["instance-id", "Metadata-Flavor", "computeMetadata"]),
@@ -364,7 +364,7 @@ class AsyncVulnEngine:
                             "detail": f"Param: {param}", "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def ssti(self, url: str, param: str) -> Optional[Dict]:
+    async def ssti(self, url: str, param: str) -> dict | None:
         payloads = SmartPayloadGenerator.generate("ssti", self.bypass)[:10]
         baseline = await self._send(inject_query_payload(url, param, "1"), timeout=12)
         baseline_body = baseline.get("body", "")
@@ -384,7 +384,7 @@ class AsyncVulnEngine:
                                 "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def xxe(self, url: str, param: str) -> Optional[Dict]:
+    async def xxe(self, url: str, param: str) -> dict | None:
         payloads = [
             '<?xml version="1.0"?><!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><root>&xxe;</root>',
         ]
@@ -395,7 +395,7 @@ class AsyncVulnEngine:
                         "detail": "File read via XXE", "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def config_checks(self, url: str) -> List[Dict]:
+    async def config_checks(self, url: str) -> list[dict]:
         paths = {
             "/.env": [r"(?i)(?:DB_|API_|SECRET_|APP_|AWS_|PORT=|\bKEY\b\s*=)"],
             "/.git/config": [r"\[core\]", r"repositoryformatversion"],
@@ -431,7 +431,7 @@ class AsyncVulnEngine:
                         })
         return findings
 
-    async def header_checks(self, url: str) -> Optional[Dict]:
+    async def header_checks(self, url: str) -> dict | None:
         r = await self._send(url, timeout=10, bypass=False)
         headers = {k.lower(): v for k, v in r.get("headers", {}).items()}
         findings = []
@@ -446,7 +446,7 @@ class AsyncVulnEngine:
                              "detail": "MIME-sniffing protection missing", "waf": "", "time": r.get("time", 0), "status": r.get("status", 0)})
         return findings if findings else None
 
-    async def open_redirect(self, url: str, param: str) -> Optional[Dict]:
+    async def open_redirect(self, url: str, param: str) -> dict | None:
         canaries = ["google.com", "example.com"]
         payloads = [
             "https://google.com",
@@ -467,7 +467,7 @@ class AsyncVulnEngine:
                         "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def cors_checks(self, url: str) -> Optional[Dict]:
+    async def cors_checks(self, url: str) -> dict | None:
         r = await self._send(url, headers={"Origin": "https://evil.com"}, timeout=10, bypass=False)
         headers = {k.lower(): str(v).lower() for k, v in (r.get("headers") or {}).items()}
         acao = headers.get("access-control-allow-origin")
@@ -478,7 +478,7 @@ class AsyncVulnEngine:
                     "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def idor_checks(self, url: str, param: str) -> Optional[Dict]:
+    async def idor_checks(self, url: str, param: str) -> dict | None:
         if not re.search(rf"{re.escape(param)}=\d+", url):
             return None
         baseline = await self._send(url, timeout=10, bypass=False)
@@ -495,7 +495,7 @@ class AsyncVulnEngine:
                         "waf": "/".join(r.get("waf", [])), "time": r.get("time", 0), "status": r.get("status", 0)}
         return None
 
-    async def scan_param(self, url: str, param: str) -> List[Dict]:
+    async def scan_param(self, url: str, param: str) -> list[dict]:
         findings = []
         checks = ParamClassifier.get_checks(self, url, param)
         for check in checks:
@@ -514,7 +514,7 @@ class AsyncVulnEngine:
                 continue
         return findings
 
-    async def scan_many(self, targets: List[tuple]) -> List[Dict]:
+    async def scan_many(self, targets: list[tuple]) -> list[dict]:
         """Scan multiple (url, param) pairs concurrently."""
         tasks = [self.scan_param(url, param) for url, param in targets]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -544,7 +544,7 @@ class VulnVerifier:
     RCE_MARKERS = [r"uid=\d+\(\w+\)", r"gid=\d+\(\w+\)", r"www-data", r"nt authority\\system"]
 
     @staticmethod
-    def _probe_ok(cond, probe, finding: Dict) -> bool:
+    def _probe_ok(cond, probe, finding: dict) -> bool:
         """Wrap a probe verdict: when it confirms, stash the scan-time
         response body on the finding as report evidence (capped, once)."""
         if cond and isinstance(probe, dict) and not finding.get("evidence"):
@@ -575,8 +575,8 @@ class VulnVerifier:
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     @staticmethod
-    def _body_has_any(body: str, patterns: List[str]) -> bool:
-        return any(re.search(p, body or "", re.I) for p in patterns)
+    def _body_has_any(body: str, patterns: list[str]) -> bool:
+        return any(re.search(p, body or "", re.IGNORECASE) for p in patterns)
 
     @staticmethod
     def _probe_untestable(*probes) -> bool:
@@ -589,8 +589,8 @@ class VulnVerifier:
             for p in probes)
 
     @staticmethod
-    async def verify(finding: Dict, engine, session_manager=None,
-                     allow_post: bool = True) -> Optional[bool]:
+    async def verify(finding: dict, engine, session_manager=None,
+                     allow_post: bool = True) -> bool | None:
         """Tri-state: True = verified, False = refuted, None = untestable
         (semua probe gagal terkirim — bukan bukti negatif)."""
         vtype = finding.get("type", "")
@@ -685,28 +685,19 @@ class VulnVerifier:
                 headers.get("access-control-allow-origin") == "https://evil.com",
                 probe, finding)
 
-        elif vtype in {"auth_bypass", "http_smuggling"}:
-            return finding.get("confidence") == "confirmed"
-
-        elif vtype == "broken_auth":
+        elif vtype in {"auth_bypass", "http_smuggling"} or vtype == "broken_auth":
             return finding.get("confidence") == "confirmed"
 
         elif vtype == "subdomain_takeover":
             return finding.get("confidence", "suspected") != "weak"
 
-        elif vtype.startswith("js_secret_"):
-            return finding.get("confidence", "confirmed") != "weak"
-
-        elif vtype.startswith("blind_"):
+        elif vtype.startswith(("js_secret_", "blind_")):
             return finding.get("confidence", "confirmed") != "weak"
 
         elif vtype == "info_disclosure":
             return finding.get("confidence") == "confirmed" and finding.get("status") in (200, 403)
 
-        elif vtype in {"admin_panel", "misconfig_header", "google_dork", "js_endpoint", "param_discovery"}:
-            return finding.get("confidence", "confirmed") != "weak"
-
-        elif vtype in {
+        elif vtype in {"admin_panel", "misconfig_header", "google_dork", "js_endpoint", "param_discovery"} or vtype in {
             "api_endpoint", "public_admin_api", "unauthenticated_api_data",
             "api_schema_exposed", "graphql_introspection", "dangerous_methods_allowed",
             "protected_api_endpoint", "auth_data_publicly_accessible", "api_auth_delta",
@@ -724,7 +715,7 @@ class HeuristicVulnEngine:
     """Advanced risk analysis for WAF and variables."""
 
     @staticmethod
-    def waf_risk_test(url: str, wafs: List[str], policy=None) -> Dict:
+    def waf_risk_test(url: str, wafs: list[str], policy=None) -> dict:
         if not wafs:
             return {"risk": "Low", "reason": "No WAF detected"}
         payload = "<script>alert(1)</script>"

@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from core.policy import ScanPolicy
 from core.client import AsyncNetworkEngine
 from core.http_client import http_send
+from core.policy import ScanPolicy
 from verd import parse_scan_policy_options
 
 

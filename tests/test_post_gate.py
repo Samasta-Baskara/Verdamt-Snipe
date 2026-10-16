@@ -41,7 +41,7 @@ class _AssaultHarness(unittest.IsolatedAsyncioTestCase):
     async def _run(self, allow_post=None):
         from runners.vuln_assault import run_vuln_assault
         services = [{"url": "https://t.id/", "origin_ip": None, "waf": []}]
-        kwargs = dict(module_flags=None, policy=None)
+        kwargs = {"module_flags": None, "policy": None}
         if allow_post is not None:
             kwargs["allow_post"] = allow_post
         stack = [p for p in self._patches()]

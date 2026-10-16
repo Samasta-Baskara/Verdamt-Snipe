@@ -1,25 +1,22 @@
 """orchestrator — verbatim split from poison.py (no logic changes)."""
 import asyncio
-import os
-import re
-import subprocess
-import tempfile
 import time
-from collections import deque
-from statistics import median
-from urllib.parse import urlparse, urlencode
-from typing import Dict, List, Optional, Set, Tuple
-from core.external_tools import _find_tool
-from core.ui import ph, i, w, s, p, G, C, B, N, ScanDashboard
-from core.proxy_manager import get_global_proxy_manager
-from modules.wordlists import WordlistProvider, PROVIDER
-from runners.shared import inject_query_payload, run_katana_phase
+
+from core.ui import B, C, G, N, ScanDashboard, i, ph, s, w
+from modules.wordlists import PROVIDER, WordlistProvider
+from runners.shared import run_katana_phase
 
 from .flood import phase_bruteforce, phase_param_flood, phase_payload_flood
-from .state import PHASE0_TIME_CAP, PoisonState, _budget_ok, _charge_external, _exhaust_finding, _get_proxy_flag, _parse_finding_param
+from .state import (
+    PHASE0_TIME_CAP,
+    PoisonState,
+    _budget_ok,
+    _charge_external,
+    _exhaust_finding,
+    _get_proxy_flag,
+    _parse_finding_param,
+)
 from .wave import _hold_for_backoff
-
-
 
 # Paket 3 (bedah 2026-10-14): a CDN/WAF edge accepts every connection at
 # the front door — exhaust and CL.TE smuggling can never reach the origin
@@ -34,7 +31,7 @@ def _edge_shields_origin(state) -> bool:
                for c in _CDN_EDGE)
 
 
-def _budget_warning(state) -> Optional[str]:
+def _budget_warning(state) -> str | None:
     """Paket 3: budget death is silent (denials read as "no finding"
     downstream) — surface it every wave once below 20%."""
     if state.policy is None:
@@ -51,7 +48,7 @@ def _budget_warning(state) -> Optional[str]:
 
 async def phase_connection_exhaust(state: PoisonState):
     """Connection Exhaust + adaptive monitoring."""
-    from modules.web.server_side.connection_exhaust import ConnectionExhaust, EXHAUST_SOCKETS
+    from modules.web.server_side.connection_exhaust import EXHAUST_SOCKETS, ConnectionExhaust
 
     # Exhaust uses raw sockets (never billed by the policy), so it must stop
     # when the budget that governs every other generator is spent — and hold
@@ -92,7 +89,7 @@ async def phase_connection_exhaust(state: PoisonState):
 
 async def phase_cache_poison(state: PoisonState):
     """Cache poisoning probe + delivery."""
-    from modules.web.server_side.cache_poison import probe_unkeyed_headers, deliver_poisoned_payload
+    from modules.web.server_side.cache_poison import deliver_poisoned_payload, probe_unkeyed_headers
 
     if not _budget_ok(state):
         return
@@ -127,7 +124,7 @@ async def phase_cache_poison(state: PoisonState):
 
 async def phase_smuggling(state: PoisonState):
     """HTTP smuggling scan."""
-    from modules.web.server_side.smuggling import scan_smuggling, SMUGGLE_REQUEST_BOUND
+    from modules.web.server_side.smuggling import SMUGGLE_REQUEST_BOUND, scan_smuggling
 
     if state.smuggle_confirmed:
         i("Smuggling confirmed in an earlier wave — re-probe skipped")
@@ -320,15 +317,15 @@ async def _adaptive_wave_loop(state: PoisonState):
 async def run_poison_assault(
     target: str,
     seed_url: str,
-    services: List[Dict],
-    subs: List[str],
-    scan_urls: List[str],
+    services: list[dict],
+    subs: list[str],
+    scan_urls: list[str],
     scope_guard,
     session_manager,
     async_engine,
     is_turbo: bool = False,
-    module_flags: dict = None,
-    auth_headers: dict = None,
+    module_flags: dict | None = None,
+    auth_headers: dict | None = None,
     max_duration: int = 120,
     policy=None,
 ):
@@ -395,7 +392,7 @@ async def run_poison_assault(
                 waf_bypass_pipeline(target, subs, list(scan_urls),
                                     proxy=_get_proxy_flag() or None),
                 timeout=phase0_budget)
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             w(f"WAF bypass pipeline used its whole {phase0_budget}s slice — "
               "continuing without origin intel")
     phase0_elapsed = time.time() - phase0_start
@@ -421,7 +418,7 @@ async def run_poison_assault(
                 origin = await asyncio.wait_for(
                     hunt_origin(target, subs, proxy=_get_proxy_flag() or None),
                     timeout=remaining_phase0)
-            except (asyncio.TimeoutError, TimeoutError):
+            except TimeoutError:
                 origin = None
                 w("Origin hunt fallback hit the Phase 0 slice cap")
             if origin and origin.get("origin_ip"):
@@ -494,7 +491,7 @@ async def run_poison_assault(
             try:
                 await asyncio.wait_for(_adaptive_wave_loop(state),
                                        timeout=state.time_left)
-            except (asyncio.TimeoutError, TimeoutError):
+            except TimeoutError:
                 w(f"Wave deadline reached ({max_duration}s) — stopping")
                 break
 

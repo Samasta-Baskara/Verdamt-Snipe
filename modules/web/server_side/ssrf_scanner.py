@@ -8,8 +8,7 @@ Probes SSRF-vulnerable parameters against:
 """
 import asyncio
 import time
-from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
-
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 # Cloud Metadata Targets
 
@@ -139,8 +138,8 @@ class SSRFScanner:
                             break
 
                 # Detection: timing anomaly (response much faster than baseline to dead IP)
-                if resp_time > 0 and baseline_time > 0:
-                    if resp_time < baseline_time * 0.3 and status > 0:
+                if (resp_time > 0 and baseline_time > 0
+                        and resp_time < baseline_time * 0.3 and status > 0):
                         found.append({
                             "type": "ssrf_cloud_metadata",
                             "title": f"SSRF Timing: {provider.upper()} reachable",

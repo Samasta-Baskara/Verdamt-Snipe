@@ -8,13 +8,13 @@ core.http_client.
 import asyncio
 import time
 import uuid
-from typing import Optional
 
 import httpx
+
 from core.audit import AuditLogger
 from core.resilience import AdaptivePacingSystem, CircuitBreaker
-from .http_client import _audit_body, _warn_policy_deny
 
+from .http_client import _audit_body, _warn_policy_deny
 
 
 class AsyncNetworkEngine:
@@ -25,8 +25,8 @@ class AsyncNetworkEngine:
     Integrates dynamically with ProxyManager for per-request proxy rotation.
     """
 
-    def __init__(self, max_connections: int = 100, impersonate: str = None,
-                 browser: str = None, policy=None):
+    def __init__(self, max_connections: int = 100, impersonate: str | None = None,
+                 browser: str | None = None, policy=None):
         self.impersonate = impersonate
         self.browser = browser
         self.policy = policy
@@ -66,7 +66,7 @@ class AsyncNetworkEngine:
         self.rate_limiter = AdaptivePacingSystem()
         self.circuit_breaker = CircuitBreaker()
 
-    def _build_client(self, proxy: Optional[str]):
+    def _build_client(self, proxy: str | None):
         """Builds a new HTTP client with the given proxy (no old session closing).
 
         All three transport fields are swapped together at the end (single
@@ -79,7 +79,7 @@ class AsyncNetworkEngine:
         httpx_client = None
 
         try:
-            from core.curl_cffi_transport import CurlCffiAsyncSession, CURL_CFFI_AVAILABLE
+            from core.curl_cffi_transport import CURL_CFFI_AVAILABLE, CurlCffiAsyncSession
             if CURL_CFFI_AVAILABLE:
                 curl_session = CurlCffiAsyncSession(
                     impersonate=self.impersonate,
@@ -112,7 +112,7 @@ class AsyncNetworkEngine:
         self._curl_cffi_session = curl_session
         self.client = httpx_client
 
-    async def _rebuild_client_with_proxy(self, proxy: Optional[str]):
+    async def _rebuild_client_with_proxy(self, proxy: str | None):
         """Swaps in a new client for the proxy, then closes the old one.
 
         Order matters: the old implementation nulled self.client /
@@ -134,15 +134,16 @@ class AsyncNetworkEngine:
             except Exception:
                 pass
 
-    async def ahttp_send(self, url: str, method: str = "GET", headers: dict = None,
+    async def ahttp_send(self, url: str, method: str = "GET", headers: dict | None = None,
                           data=None, json=None, bypass: bool = False,
                           state_context=None,
-                          timeout: Optional[float] = None) -> dict:
+                          timeout: float | None = None) -> dict:
         """Async HTTP request with per-host rate limiting + circuit breaker."""
-        from modules.auth.bypass import WAFBypass
         from urllib.parse import urlparse as _urlparse
+
         from core.proxy_manager import get_global_proxy_manager
         from core.ui import count_request
+        from modules.auth.bypass import WAFBypass
 
         trace = uuid.uuid4().hex[:12]
         if self.policy:
@@ -200,7 +201,7 @@ class AsyncNetworkEngine:
         try:
             await asyncio.wait_for(self._request_semaphore.acquire(), timeout=acquire_timeout)
             global_acquired = True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.host_limiter.release(hostname, 0)
             if self.policy:
                 self.policy.refund_request(reason="concurrency_budget_exhausted",

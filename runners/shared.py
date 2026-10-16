@@ -1,7 +1,6 @@
 import asyncio
 import re
-from typing import Dict, List
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit, parse_qsl, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 from core.ui import G, N, Spinner, p, ph, s, w
 
@@ -47,7 +46,7 @@ def normalize_urls(urls, scope_guard=None, keep_static=True):
 
 def collect_js_assets(urls, services):
     js_urls = {u for u in urls if urlparse(u).path.lower().endswith(".js")}
-    script_re = re.compile(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', re.I)
+    script_re = re.compile(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', re.IGNORECASE)
 
     for sv in services or []:
         base_url = sv.get("url", "")
@@ -201,7 +200,7 @@ def concrete_js_findings(findings, services, scan_urls, scope_guard):
     return validated
 
 
-def merge_params(params: Dict[str, List[str]], path: str, discovered: List[str]):
+def merge_params(params: dict[str, list[str]], path: str, discovered: list[str]):
     if not discovered:
         return params
     params.setdefault(path or "/", [])
@@ -242,7 +241,7 @@ def _resolve_active_proxy():
 
 
 async def run_katana_phase(seed_url: str, policy=None, proxy=None,
-                           timeout: int = 60) -> Dict:
+                           timeout: int = 60) -> dict:
     """Fase Katana crawl bersama (mode 3/4/5) — best-effort, tak melempar.
 
     Selalu mengembalikan ``{"endpoints": [], "params": []}`` saat tool
@@ -268,7 +267,7 @@ async def run_katana_phase(seed_url: str, policy=None, proxy=None,
         if eps or prs:
             s(f"Katana crawl: {eps} endpoint(s), {prs} param(s) found")
         return res
-    except asyncio.TimeoutError:
+    except TimeoutError:
         w(f"Katana crawl timed out after {timeout}s — continuing without crawl data")
         return {"endpoints": [], "params": []}
     except Exception as e:
@@ -291,7 +290,7 @@ async def run_waf_origin_phase(target: str, services, subs=None, policy=None,
     ph("WAF DETECTED: Running origin IP hunt")
     from modules.waf.origin_hunter import hunt_origin
 
-    hosts: List[str] = []
+    hosts: list[str] = []
     for sv in services or []:
         host = urlparse(sv.get("url", "")).hostname
         if host and host not in hosts:
@@ -305,7 +304,7 @@ async def run_waf_origin_phase(target: str, services, subs=None, policy=None,
             hunt_origin(target, hosts, proxy=_resolve_active_proxy()),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         w(f"Origin hunt timed out after {timeout}s — scanning through WAF (limited)")
         return None
     except Exception as e:

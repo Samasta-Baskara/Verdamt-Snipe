@@ -4,22 +4,22 @@ Split verbatim from the old single-file core/ui/tables.py (no logic
 changes). `console` is intentionally NOT imported by name here — every
 renderer reads core.ui.styles.console late so tests can redirect it.
 """
-from core.ui import styles
-
+import collections
 import os
 import re
 import sys
-import time
 import threading
-import collections
-from typing import Dict, List, Optional
+import time
+from typing import Optional
 
 from rich.live import Live
 
+from core.ui import styles
+
 from ..banner import _PIPELINE_STAGES_BY_MODE
 from ..styles import strip_ansi
-from .widgets import (_FeedProxy, _MARKER_RE)
 from .render import _DashboardRender
+from .widgets import _MARKER_RE, _FeedProxy
 
 _HISTORY_LIMIT = 400
 _SCROLL_STEP = 4
@@ -64,42 +64,42 @@ class ScanDashboard(_DashboardRender):
         self.status: str = "STARTING"
         self.current_activity: str = ""
         self.finding_count: int = 0
-        self.severity_counts: Dict[str, int] = {
+        self.severity_counts: dict[str, int] = {
             "Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0,
         }
-        self.metrics: Dict[str, int] = {
+        self.metrics: dict[str, int] = {
             "Requests": 0,
             "Subdomains": 0,
             "Live Hosts": 0,
             "Endpoints": 0,
             "Parameters": 0,
         }
-        self.pipeline: List[Dict[str, str]] = [dict(s) for s in _PIPELINE_STAGES_BY_MODE["FULL"]]
+        self.pipeline: list[dict[str, str]] = [dict(s) for s in _PIPELINE_STAGES_BY_MODE["FULL"]]
         self.recent_events: collections.deque = collections.deque(maxlen=_HISTORY_LIMIT)
         self.recent_findings: collections.deque = collections.deque(maxlen=5)
         self._rps_history: collections.deque = collections.deque(maxlen=30)
         self._display_pct: float = 0.0
         self._last_completed_count: int = 0
         self.start_time: float = 0.0
-        self._live: Optional[Live] = None
+        self._live: Live | None = None
         self._active: bool = False
 
         # activity-feed cursor (absolute event sequence numbers)
         self._event_seq: int = 0
-        self._view_anchor: Optional[int] = None   # None → auto-follow newest
+        self._view_anchor: int | None = None   # None → auto-follow newest
         self._render_top_seq: int = 0
 
         # optional tty key listener for feed scroll-back
-        self._input_thread: Optional[threading.Thread] = None
+        self._input_thread: threading.Thread | None = None
         self._input_stop = threading.Event()
-        self._term_fd: Optional[int] = None
+        self._term_fd: int | None = None
         self._term_attrs = None
-        self._term_out_fd: Optional[int] = None
+        self._term_out_fd: int | None = None
         self.scroll_enabled: bool = False
 
         # stdout/stderr shims active while the dashboard owns the screen
-        self._stdout_proxy: Optional[_FeedProxy] = None
-        self._stderr_proxy: Optional[_FeedProxy] = None
+        self._stdout_proxy: _FeedProxy | None = None
+        self._stderr_proxy: _FeedProxy | None = None
 
     # Lifecycle
 
@@ -439,12 +439,12 @@ class ScanDashboard(_DashboardRender):
                 self.pipeline[target_idx]["detail"] = "running..."
             self.status = "SCANNING"
 
-    def log_event(self, text: str, style: str = "white", kind: Optional[str] = None):
+    def log_event(self, text: str, style: str = "white", kind: str | None = None):
         with self._lock:
             clean_text = strip_ansi(text)
 
             # Auto metric parsing from logs
-            sub_m = re.search(r"(\d+)\s+subdomains?", clean_text, re.I)
+            sub_m = re.search(r"(\d+)\s+subdomains?", clean_text, re.IGNORECASE)
             if sub_m:
                 count = int(sub_m.group(1))
                 self.metrics["Subdomains"] = count
@@ -452,7 +452,7 @@ class ScanDashboard(_DashboardRender):
                 if idx != -1:
                     self.pipeline[idx]["detail"] = f"{count} subdomains"
 
-            host_m = re.search(r"(\d+)\s+(?:live\s+)?(?:hosts|services)", clean_text, re.I)
+            host_m = re.search(r"(\d+)\s+(?:live\s+)?(?:hosts|services)", clean_text, re.IGNORECASE)
             if host_m:
                 count = int(host_m.group(1))
                 self.metrics["Live Hosts"] = count
@@ -460,7 +460,7 @@ class ScanDashboard(_DashboardRender):
                 if idx != -1:
                     self.pipeline[idx]["detail"] = f"{count} live hosts"
 
-            ep_m = re.search(r"(\d+)\s+(?:urls?|endpoints?)", clean_text, re.I)
+            ep_m = re.search(r"(\d+)\s+(?:urls?|endpoints?)", clean_text, re.IGNORECASE)
             if ep_m and ep_m.group(1):
                 count = int(ep_m.group(1))
                 self.metrics["Endpoints"] = count

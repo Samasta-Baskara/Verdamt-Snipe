@@ -10,11 +10,10 @@ To use: just drop this file in modules/custom/ — auto-loaded.
 Rename to _example_jwt.py to disable (underscore prefix = skipped).
 """
 import base64
-import hmac
 import hashlib
+import hmac
 import json
 import re
-from typing import Dict, List
 
 
 class JWTTokenAnalyzer:
@@ -31,13 +30,13 @@ class JWTTokenAnalyzer:
         "superman", "iloveyou", "monkey", "dragon", "master",
     ]
 
-    async def run(self, state) -> List[Dict]:
+    async def run(self, state) -> list[dict]:
         findings = []
 
         for url in list(state.scan_urls)[:10]:
             try:
                 # Check URL query params for JWT
-                from urllib.parse import urlparse, parse_qs
+                from urllib.parse import parse_qs, urlparse
                 parsed = urlparse(url)
                 for values in parse_qs(parsed.query).values():
                     for v in values:
@@ -59,7 +58,7 @@ class JWTTokenAnalyzer:
 
         return findings
 
-    def _analyze_token(self, token: str, url: str, source: str) -> List[Dict]:
+    def _analyze_token(self, token: str, url: str, source: str) -> list[dict]:
         """Analyze a single JWT token for weaknesses."""
         findings = []
         parts = token.split(".")

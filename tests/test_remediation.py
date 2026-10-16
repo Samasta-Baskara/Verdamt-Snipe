@@ -1,12 +1,12 @@
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from modules.recon.tech_detector import TechStackDetector
-from reports.remediation import ContextAwareFixGenerator
 from reports.engine import PoCGenerator
+from reports.remediation import ContextAwareFixGenerator
 
 
 class TestFrameworkRemediation(unittest.TestCase):

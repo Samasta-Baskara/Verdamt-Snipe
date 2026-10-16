@@ -128,7 +128,7 @@ class TestDorkerFastBail(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(r["scrape_failed"])
                 self.assertTrue(r["manual_dork_path"])
                 self.assertTrue(os.path.exists(r["manual_dork_path"]))
-                with open(r["manual_dork_path"], encoding="utf-8") as fh:
+                with open(r["manual_dork_path"], encoding="utf-8") as fh:  # noqa: ASYNC230
                     content = fh.read()
                 self.assertIn("site:example.com filetype:sql", content)
             finally:

@@ -1,6 +1,6 @@
-import unittest
-import sys
 import os
+import sys
+import unittest
 from unittest.mock import AsyncMock, patch
 
 # Ensure project root is in sys.path
@@ -8,10 +8,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from core.scope import ScopeGuard
 from core.state import SessionManager
-from runners.shared import inject_query_payload, merge_params
+from core.ui import _MODES
 from modules.auth.bypass import WAFBypass
 from runners.poison import run_poison_assault
-from core.ui import _MODES
+from runners.shared import inject_query_payload, merge_params
 from verd import parse_mode, parse_scan_args, seed_session_headers
 
 

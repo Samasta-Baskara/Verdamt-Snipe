@@ -1,14 +1,13 @@
 """Host Header Injection + Password Reset Poisoning."""
 
 import asyncio
-from typing import Dict, List
 from urllib.parse import urlparse
 
 from core.client import AsyncNetworkEngine
 from core.ui import w
 
 
-async def scan_host_header(url: str, engine: AsyncNetworkEngine, session_manager=None) -> List[Dict]:
+async def scan_host_header(url: str, engine: AsyncNetworkEngine, session_manager=None) -> list[dict]:
     """Test Host header injection on target."""
     findings = []
     parsed = urlparse(url)

@@ -3,23 +3,66 @@
 Everything the old core/ui/tables.py exported is re-exported here so
 `from core.ui import tables; tables._FeedProxy` style access keeps working.
 """
-from ..styles import console  # noqa: F401  (legacy attribute; patch styles.console instead)
-from .text import (_blank, _clip_cells, _fit, _take_cells, _wrap, _center_height,
-                   _fit_height, _frame, _hstack, _blank_line, _SCROLLBAR_W)
-from .widgets import (_logo_rows, _styled_message, _event_lines, _stage_rows, _gauge,
-                      _sparkline, _findings_line, _bar_meter, _FeedProxy,
-                      GAUGE_W, GAUGE_H)
-from .dashboard import (ScanDashboard, _HISTORY_LIMIT, _SCROLL_STEP, _WHEEL_STEP,
-                        _MOUSE_ON, _MOUSE_OFF)
+from ..styles import console
 from .api import draw_box, draw_table
+from .dashboard import _HISTORY_LIMIT, _MOUSE_OFF, _MOUSE_ON, _SCROLL_STEP, _WHEEL_STEP, ScanDashboard
+from .text import (
+                   _SCROLLBAR_W,
+                   _blank,
+                   _blank_line,
+                   _center_height,
+                   _clip_cells,
+                   _fit,
+                   _fit_height,
+                   _frame,
+                   _hstack,
+                   _take_cells,
+                   _wrap,
+)
+from .widgets import (
+                   GAUGE_H,
+                   GAUGE_W,
+                   _bar_meter,
+                   _event_lines,
+                   _FeedProxy,
+                   _findings_line,
+                   _gauge,
+                   _logo_rows,
+                   _sparkline,
+                   _stage_rows,
+                   _styled_message,
+)
 
 __all__ = [
-    "ScanDashboard", "draw_box", "draw_table",
-    "_blank", "_clip_cells", "_fit", "_take_cells", "_wrap", "_center_height",
-    "_fit_height", "_frame", "_hstack", "_blank_line",
-    "_logo_rows", "_styled_message", "_event_lines", "_stage_rows", "_gauge",
-    "_sparkline", "_findings_line", "_bar_meter", "_FeedProxy",
-    "GAUGE_W", "GAUGE_H",
-    "_HISTORY_LIMIT", "_SCROLL_STEP", "_WHEEL_STEP", "_SCROLLBAR_W",
-    "_MOUSE_ON", "_MOUSE_OFF", "console",
+                   "GAUGE_H",
+                   "GAUGE_W",
+                   "_HISTORY_LIMIT",
+                   "_MOUSE_OFF",
+                   "_MOUSE_ON",
+                   "_SCROLLBAR_W",
+                   "_SCROLL_STEP",
+                   "_WHEEL_STEP",
+                   "ScanDashboard",
+                   "_FeedProxy",
+                   "_bar_meter",
+                   "_blank",
+                   "_blank_line",
+                   "_center_height",
+                   "_clip_cells",
+                   "_event_lines",
+                   "_findings_line",
+                   "_fit",
+                   "_fit_height",
+                   "_frame",
+                   "_gauge",
+                   "_hstack",
+                   "_logo_rows",
+                   "_sparkline",
+                   "_stage_rows",
+                   "_styled_message",
+                   "_take_cells",
+                   "_wrap",
+                   "console",
+                   "draw_box",
+                   "draw_table",
 ]

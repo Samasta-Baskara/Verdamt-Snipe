@@ -4,15 +4,14 @@ Split verbatim from the old single-file core/ui/tables.py (no logic
 changes). `console` is intentionally NOT imported by name here — every
 renderer reads core.ui.styles.console late so tests can redirect it.
 """
-from core.ui import styles
-
-
+from rich import box
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
 
-from ..styles import C, G, R, Y, _DIAMOND, _TARGET, strip_ansi
+from core.ui import styles
+
+from ..styles import _DIAMOND, _TARGET, C, G, R, Y, strip_ansi
 from .dashboard import ScanDashboard
 
 

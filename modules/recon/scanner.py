@@ -1,14 +1,16 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import asyncio
 import re
 import socket
-import httpx
-from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
+
+import httpx
+
 from core.client import AsyncNetworkEngine
-from core.ui import ph, i, p, s, w, draw_table, Spinner, G, Y, R, M, N, GY, W, B
+from core.ui import GY, B, G, M, N, R, Spinner, W, Y, draw_table, i, p, ph, s, w
 
 _CHECK = "✓"
 
@@ -17,10 +19,10 @@ class SubdomainFinder:
 
     def __init__(self, domain: str, engine: AsyncNetworkEngine = None):
         self.domain = domain.lower().strip()
-        self.subs: Set[str] = set()
+        self.subs: set[str] = set()
         self.engine = engine  # None = private engine created in run()
 
-    async def _fetch(self, url: str, timeout: int = 20) -> Dict:
+    async def _fetch(self, url: str, timeout: int = 20) -> dict:
         return await self.engine.ahttp_send(url, timeout=timeout)
 
     async def _crtsh(self):
@@ -78,7 +80,7 @@ class SubdomainFinder:
         except Exception as e:
             w(f"alienvault failed: {str(e)[:80]}")
 
-    async def _check_dns(self, sub: str, spin) -> Optional[str]:
+    async def _check_dns(self, sub: str, spin) -> str | None:
         spin.next()
         try:
             await asyncio.get_running_loop().getaddrinfo(
@@ -87,14 +89,14 @@ class SubdomainFinder:
         except (socket.herror, socket.gaierror, OSError):
             return None
 
-    async def run(self) -> List[str]:
+    async def run(self) -> list[str]:
         ph("SUBDOMAIN ENUMERATION")
         i(f"Target: {self.domain}")
 
         private_engine = self.engine is None
         if private_engine:
             self.engine = AsyncNetworkEngine()
-        valid: Set[str] = set()
+        valid: set[str] = set()
         try:
             sources = [self._crtsh, self._hackertarget, self._bufferover,
                        self._rapiddns, self._alienvault]
@@ -121,7 +123,7 @@ class SubdomainFinder:
         return sorted(valid)
 
 class HTTPProber:
-    def __init__(self, subs: List[str], seed_url=None, timeout=10, rate_limiter=None,
+    def __init__(self, subs: list[str], seed_url=None, timeout=10, rate_limiter=None,
                  proxy=None, policy=None):
         self.subs = subs
         self.seed_url = seed_url
@@ -129,16 +131,16 @@ class HTTPProber:
         self.ratelimit = rate_limiter
         self.proxy = proxy
         self.policy = policy
-        self.services: List[Dict] = []
+        self.services: list[dict] = []
 
     @staticmethod
     def _extract_title(html) -> str:
-        match = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.I | re.DOTALL)
+        match = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.IGNORECASE | re.DOTALL)
         if not match:
             return ""
         return re.sub(r"\s+", " ", match.group(1)).strip()[:100]
 
-    async def _probe_single(self, client, url) -> Optional[Dict]:
+    async def _probe_single(self, client, url) -> dict | None:
         parsed = urlparse(url)
         hostname = parsed.hostname or parsed.netloc
         if not hostname:
@@ -215,7 +217,7 @@ class HTTPProber:
                 continue
         return None
 
-    async def run(self) -> List[Dict]:
+    async def run(self) -> list[dict]:
         ph("VERDAMT-HTTPX v4: Probing & Validation (Async)")
         targets = []
         if self.seed_url:
@@ -280,7 +282,8 @@ class HTTPProber:
             except Exception as e:
                 w(f"Go Probing Engine encounter: {e} — falling back to Async Python Client")
 
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+        from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
         from core.ui import console
 
         max_connections = self.policy.max_concurrency if self.policy else 100
@@ -318,10 +321,9 @@ class HTTPProber:
                 raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for r in raw_results:
-                if r and not isinstance(r, Exception):
-                    if r["final_url"] not in seen:
-                        seen.add(r["final_url"])
-                        results.append(r)
+                if r and not isinstance(r, Exception) and r["final_url"] not in seen:
+                    seen.add(r["final_url"])
+                    results.append(r)
 
         self.services = sorted(results, key=lambda x: x["final_url"])
 
@@ -346,10 +348,10 @@ class HTTPProber:
 class WaybackCollector:
     def __init__(self, domain: str, engine: AsyncNetworkEngine = None):
         self.domain = domain
-        self.urls: Set[str] = set()
+        self.urls: set[str] = set()
         self.engine = engine  # None = private engine created in run()
     
-    async def run(self) -> List[str]:
+    async def run(self) -> list[str]:
         ph("WAYBACK MACHINE: Time Travel")
         i(f"Fetching historical archives for {W}{self.domain}{N}...")
         spin = Spinner("Mining Wayback Machine...")
@@ -384,12 +386,12 @@ class WaybackCollector:
         return sorted(self.urls)
 
 class ParamExtractor:
-    def __init__(self, urls: List[str], extra_params: List[str] = None):
+    def __init__(self, urls: list[str], extra_params: list[str] | None = None):
         self.urls = urls
         self.extra_params = extra_params or []
-        self.params: Dict[str, Set[str]] = {}
+        self.params: dict[str, set[str]] = {}
     
-    async def run(self) -> Dict[str, List[str]]:
+    async def run(self) -> dict[str, list[str]]:
         """Pure-CPU param mining — async only so callers can await it
         directly instead of paying a to_thread hop."""
         from collections import defaultdict
@@ -420,7 +422,7 @@ class ParamExtractor:
         # Deduplicate and limit per path to avoid bloat
         final_params = {}
         for path, plist in self.params.items():
-            final_params[path] = sorted(list(plist))[:15] # Top 15 params per path
+            final_params[path] = sorted(plist)[:15] # Top 15 params per path
             
         total = sum(len(v) for v in final_params.values())
         p(f"Unique paths mapped: {len(final_params)}")
