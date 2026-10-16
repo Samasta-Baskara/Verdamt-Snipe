@@ -16,6 +16,26 @@ class TestGhostModeAsync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers["Connection"], "close")
 
 
+class TestGhostModeAutoStealth(unittest.TestCase):
+    """Auto-stealth chain: RateLimiter escalation drives GhostMode headers."""
+
+    def test_rate_limiter_drives_auto_stealth(self):
+        from core.ratelimit import RateLimiter
+        rl = RateLimiter(per_host_delay=0.01)
+        GhostMode.ENABLED = False
+        GhostMode.set_rate_limiter(rl)
+        try:
+            self.assertFalse(GhostMode.should_stealth("waf.example"))
+            rl._host_stealth_auto["waf.example"] = True
+            self.assertTrue(GhostMode.should_stealth("waf.example"))
+        finally:
+            GhostMode.set_rate_limiter(None)
+
+    def test_global_rate_limiter_is_a_singleton(self):
+        from core.ratelimit import get_global_rate_limiter
+        self.assertIs(get_global_rate_limiter(), get_global_rate_limiter())
+
+
 class TestHostRateLimiter(unittest.IsolatedAsyncioTestCase):
     async def test_acquire_and_release(self):
         limiter = HostRateLimiter(default_max_concurrent=2)

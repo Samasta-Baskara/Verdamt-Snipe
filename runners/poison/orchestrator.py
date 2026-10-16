@@ -129,6 +129,9 @@ async def phase_smuggling(state: PoisonState):
     """HTTP smuggling scan."""
     from modules.web.server_side.smuggling import scan_smuggling, SMUGGLE_REQUEST_BOUND
 
+    if state.smuggle_confirmed:
+        i("Smuggling confirmed in an earlier wave — re-probe skipped")
+        return
     if not _budget_ok(state):
         return
     if _hold_for_backoff(state, "smuggling probes"):

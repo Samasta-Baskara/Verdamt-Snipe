@@ -246,3 +246,25 @@ class RateLimiter:
             self._host_adaptive_active.pop(hostname, None)
             self._host_stealth_auto.pop(hostname, None)
             self._notified_hosts.discard(hostname)
+
+
+# ---------------------------------------------------------------------------
+# Process-wide singleton
+#
+# The auto-stealth chain (anomaly escalation -> GhostMode stealth headers
+# -> console notification) never fired in production because RateLimiter
+# was only ever instantiated by tests. Every consumer — cli_parser's
+# GhostMode injection, runners.surface's HTTPProber, runners.shared's
+# Go-bridge delay sync — now goes through this getter so they share ONE
+# instance.
+# ---------------------------------------------------------------------------
+
+_GLOBAL_RATE_LIMITER = None
+
+
+def get_global_rate_limiter() -> RateLimiter:
+    """Lazily create and return the process-wide RateLimiter."""
+    global _GLOBAL_RATE_LIMITER
+    if _GLOBAL_RATE_LIMITER is None:
+        _GLOBAL_RATE_LIMITER = RateLimiter()
+    return _GLOBAL_RATE_LIMITER

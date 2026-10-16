@@ -1583,6 +1583,17 @@ class TestP3Gating(unittest.IsolatedAsyncioTestCase):
             await phase_smuggling(st)
         sm.assert_not_called()
 
+    async def test_smuggling_skipped_once_confirmed(self):
+        # Budget guard: after one confirmation, later waves must not
+        # re-probe the same first-3 services (SMUGGLE_REQUEST_BOUND each).
+        st = self._state()
+        st.target_wafs = set()
+        st.smuggle_confirmed = True
+        with patch("modules.web.server_side.smuggling.scan_smuggling",
+                   new=AsyncMock(return_value=[])) as sm:
+            await phase_smuggling(st)
+        sm.assert_not_called()
+
     async def test_exhaust_still_runs_without_cdn(self):
         st = self._state()
         st.target_wafs = set()

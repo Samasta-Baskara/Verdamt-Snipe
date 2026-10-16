@@ -174,6 +174,14 @@ class HTTPProber:
 
                     if self.ratelimit:
                         self.ratelimit.report_response(hostname, resp.status_code, resp.text)
+                        notif = self.ratelimit.get_pending_notification()
+                        if notif:
+                            nhost, event = notif
+                            if event == "escalate":
+                                w(f"WAF pressure on {nhost} — auto-stealth engaged "
+                                  f"(adaptive pacing + ghost headers)")
+                            elif event == "recovered":
+                                i(f"{nhost} recovered — auto-stealth released, pacing normalized")
 
                     return {
                         "url": candidate_url.rstrip("/"),

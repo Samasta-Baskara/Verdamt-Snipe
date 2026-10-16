@@ -55,8 +55,10 @@ async def run_surface_scan(target: str, seed_url: str, scope_guard, proxy=None,
         if policy:
             probe_subs = [sub for sub in probe_subs if policy.allows_host(sub)]
         try:
+            from core.ratelimit import get_global_rate_limiter
             services = await asyncio.wait_for(
-                HTTPProber(probe_subs, proxy=proxy, policy=policy).run(),
+                HTTPProber(probe_subs, proxy=proxy, policy=policy,
+                           rate_limiter=get_global_rate_limiter()).run(),
                 timeout=60
             )
         except (asyncio.TimeoutError, Exception):

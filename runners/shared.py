@@ -91,15 +91,12 @@ async def validate_recon_urls(urls, scope_guard, async_engine, session_manager=N
     go_results = None
     if go_bridge.is_available():
         try:
-            # Fetch adaptive delay if a global RateLimiter is available
-            delay_ms, jitter_ms = 0, 0
-            try:
-                # The global rate_limiter instance is typically set on async_engine
-                _rl = getattr(async_engine, 'rate_limiter', None)
-                if _rl:
-                    delay_ms, jitter_ms = _rl.get_adaptive_delay_ms("default")
-            except Exception:
-                pass
+            # Adaptive pacing for the Go bridge. NOTE: async_engine.rate_limiter
+            # is an AdaptivePacingSystem (no get_adaptive_delay_ms) — reading it
+            # here used to AttributeError into the except and silently degrade
+            # to 0/0. The real RateLimiter is the process-wide singleton.
+            from core.ratelimit import get_global_rate_limiter
+            delay_ms, jitter_ms = get_global_rate_limiter().get_adaptive_delay_ms("default")
             go_results = await asyncio.to_thread(
                 go_bridge.probe_batch, prioritized, None, 100, 4, delay_ms, jitter_ms
             )
