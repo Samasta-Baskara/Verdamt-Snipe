@@ -36,9 +36,10 @@ class TestModuleTimeouts(unittest.IsolatedAsyncioTestCase):
             any("jwt" in m and "timed out" in m for m in msgs), msgs)
 
     async def test_backstop_lebih_dari_timeout_internal(self):
-        from runners import vuln_assault as va
-        import core.external_tools as et
         import inspect
+
+        import core.external_tools as et
+        from runners import vuln_assault as va
 
         # backstop (MODULE_TIMEOUTS) harus lebih besar dari timeout internal
         # tool agar jalur partial-salvage yang menang, bukan pembuangan luar.
